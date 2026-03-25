@@ -1,0 +1,5 @@
+# Ignore these folders when doing: git push master.
+data/
+figures/
+jobs/
+benchmarking/
