@@ -26,15 +26,13 @@ import re # to work with regular expressions.
 import pathlib
 from pathlib import Path
 
-### Prepare Dictionary of Levels
-
 def create_parent_dct(path_parents):
 
-    """ Create a dictionary for child (keys) and parent (value). """
+    """ Return a dictionary for child (keys) and parent (values). """
 
     chpar = {} # empty dictionary.
 
-    with open(path_parents, "r") as f: # relationships stored in data/input/OYchpar.csv.
+    with open(path_parents, "r") as f: # relationships stored in corresponding path.
         for line in f:
             items = line.strip().split(sep=",")
             if not items:
@@ -49,8 +47,8 @@ def create_parent_dct(path_parents):
 
 def call_par(string, chpar):
 
-    """ Find the level at which a specific haplogroup is found, by using a recursive function
-    that checks every time the father of a child """
+    """ Return the level at which a specific haplogroup is found, by using a recursive function
+    that checks every time the father of a child. """
     
     if string not in chpar: # if the consulted child is not inside the dictionary.
         return 0
@@ -60,7 +58,7 @@ def call_par(string, chpar):
 
 def ancder_par(string, par_dict, chpar):
 
-    """ Find the total number of ancestral, derived and uncovered SNPs for parental branches """
+    """ Return the total number of ancestral, derived and uncovered SNPs for parental branches """
 
     if string not in chpar: # if the consulted child is not inside the dictionary.
         return 0
@@ -159,7 +157,7 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     # Create a first dictionary to store values on haplogroups. 
     OY_dict = {}
 
-    with open(bracnhes, "r") as f:
+    with open(branches, "r") as f:
         for line in f:
             items = line.strip().split() # because every line is: X-XXXX X123 X542 XG56*
             if not items:
@@ -256,7 +254,7 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
 
 def ref_alt_count(df_ch, bases=["A", "C", "G", "T"]):
 
-    """ Count Ref and Alt alleles in Dataframe df_ch
+    """ Count Ref and Alt alleles in dataFrame df_ch
     with ref, alt, A, C, G, T fields and enter new columns
     ref# and alt# """
 
@@ -323,7 +321,7 @@ def call_y_bam(df=[], path_bam="",
 
     # Get only SNPs with derived state (number of derived alleles higher than ancestral).
     idx_der = df_ch["alt#"]>df_ch["ref#"]
-    print(f"#Derived Loci: \n{np.sum(idx_der)} / {np.sum(cov1>0)} covered>0")
+    print(f"#Derived Loci: {np.sum(idx_der)} / {np.sum(cov1>0)} covered>0")
 
     # Create a dataFrame to store only derived SNPs.
     df_der = df_ch[idx_der].sort_values(by="SNP-ID").reset_index(drop=True).copy()
@@ -334,7 +332,7 @@ def call_y_bam(df=[], path_bam="",
 def div_anc_der(df, chpar, df_exclude=[]):
 
     """ Calculate total, ancestral, derived, and uncovered SNPs per branch, 
-    as well as for parental branches. df_exclude: Dataframe of SNPs to filter """
+    as well as for parental branches. df_exclude: dataFrame of SNPs to filter """
 
     # If more than 1 SNP to be excluded in array, apply function to filter out the corresponding positions.
     if len(df_exclude)>0:
@@ -461,7 +459,8 @@ def create_tree(string, level, df, chpar, file=None, total_par=0,RED = "\033[91m
 
 def get_isogg(string, groups = ["E-M35", "G-P15", "I-M253", "I-S238", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]):
 
-    """ Find correspoondencies between macrohaplogroups in OY and ISOGG """
+    """ Return correspondencies between macrohaplogroups in OY and ISOGG 
+    (for relevant classification in Eupedia). """
 
     # If the consulted haplogroup is one of the list:
     if string in groups:
@@ -485,14 +484,14 @@ def create_path(string, df, chpar, path):
 
     """ Create a path as [sample: XXX1, XXXX2, XX32...] """
 
-    # Same as with get_isogg() function, but creating directly a list here to store the content.
+    # Create a list to store the content.
     subset = df.loc[df["Branch"] == string]
 
     if string in chpar:
         parent = chpar.get(string)
-        create_path(parent, df, chpar, path)
+        create_path(parent, df, chpar, path) # recursive step.
 
-    path.append(string) # recursive step.
+    path.append(string)
 
 def network(data, width, height, avg_snps):
 
@@ -565,8 +564,8 @@ def network(data, width, height, avg_snps):
     # Define also at the bottom of the network which samples correspond to every macrohaplogroup.
     roots =  ["E-M35", "G-P15", "I-M253", "I-S238", "I-L416", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]
     
-    # Set of colors for every macrohaplogroup (named as stpolten given the test set).
-    stpolten_colors = {
+    # Set of colors for every macrohaplogroup.
+    colors = {
         "E-M35": "#1b9e77",
         "G-P15": "#d95f02",
         "I-M253": "#7570b3",
@@ -576,8 +575,7 @@ def network(data, width, height, avg_snps):
         "L-M22": "#90EE90",
         "R-L146": "#fb9a99",
         "R-M343": "#e31a1c",
-        "T": "#6a3d9a",
-        "Unknown (Not Eupedia)": "#808080"
+        "T": "#6a3d9a"
     }
     
     # Alternative names of Y-haplogroups.
@@ -654,7 +652,7 @@ def network(data, width, height, avg_snps):
         difference = x_max - x_min
         
         # Assign a color for the label
-        color = stpolten_colors.get(root, "#808080")
+        color = colors.get(root, "#808080")
         
         # Draw the horizontal bar
         plt.hlines(y=bar_y + layer_y, xmin = x_min, xmax = x_max, 
@@ -677,7 +675,7 @@ def network(data, width, height, avg_snps):
 
 def unique_lineages(df, data):
 
-    """ Determine the number of unique lineages (paths shared by different samples counted as 1) """ 
+    """ Return a list of samples that correspond to unique lineages (paths shared by different samples counted as 1). """ 
     
     # Save all sample names in a list.
     samples = df["Sample"]
@@ -876,7 +874,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         for snp in snps:
             data_list.append({"Haplogroup": haplo, "Total_SNPs": snp})
 
-    # Create DataFrame and save.
+    # Create dataFrame and save.
     df_snps = pd.DataFrame(data_list)
     df_snps.to_csv("data/output/snps_branch.csv", mode="a", header=False, index=False)
 
