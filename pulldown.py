@@ -73,7 +73,8 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
 
     """ Return a dataFrame in Eigenstrat Format for SNPs,
     filtered for available positions, biallelic SNPs, Ref and Alt different,
-    ACTG nucleotides and unique positions """
+    ACTG nucleotides and unique positions. Also, add information for level, 
+    Y-haplogroup and YFull translation for every SNP. """
 
     df_raw = pd.read_csv(path_snps, dtype=object, sep=" ", header=None) # read the content of the .csv file.
     df_raw.columns = ['Coordinates','ANC','DER','SNP-ID'] # assign column names.
@@ -277,7 +278,7 @@ def pulldown_bamtable(path_bam = "", o_file = "",
                       snip5=0, snip3=0, base_qual=20, map_qual=25, 
                       path_bed = "./data/output/OY_snps.bed"):
 
-    """ Pileup in .bam file to get count per base, using the .bed file created for the SNPs dataset """
+    """ Command for pileup using a .bam file and the corresponding coordinates in a .bed file, to create an output file. """
 
     run_cmd = f"{bamtable} -F -A --snip5={snip5} --snip3={snip3} --base_qual={base_qual} --map_qual={map_qual} -f {path_bed} {path_bam} > {o_file}"
     os.system(run_cmd)
