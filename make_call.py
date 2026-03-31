@@ -62,7 +62,8 @@ def main():
         help = "Set of SNPs to be filtered because of high count of ancestral alleles in a great number of samples.")
     parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhap.db",
         help = "Provide a .csv file with all SNPs contained in each haplogroup.")
-
+    parser.add_argument("--ex_limit", required=False, type=int, default=5,
+        help = "Specify the minimum number of samples to consdier excluding a SNP (because of high ancestral state count).")
 
     # Store arguments as variables:
     args = parser.parse_args()
@@ -74,7 +75,8 @@ def main():
            base_qual=args.base_qual, map_qual=args.map_qual, path_snps=args.snps,
            reference_genome=args.rg, create_network=args.create_network, 
            width=args.width, height=args.height, transitions=args.transitions,
-           tree=args.haplogr_tree, translation=args.translation, mm=args.mismatches, branches=args.branches)
+           tree=args.haplogr_tree, translation=args.translation, mm=args.mismatches, 
+           branches=args.branches, ex_limit=args.ex_limit)
 
 if __name__ == "__main__":
 

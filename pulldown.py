@@ -30,42 +30,29 @@ def create_parent_dct(path_parents):
 
     """ Return a dictionary for child (keys) and parent (values). """
 
-    chpar = {} # empty dictionary.
-
-    with open(path_parents, "r") as f: # relationships stored in corresponding path.
-        for line in f:
-            items = line.strip().split(sep=",")
-            if not items:
-                continue
-
-            child = items[0]
-            parent = items[1]
-
-            chpar[child] = parent # add new entry as [child: parent]. 
-
+    df_chpar = pd.read_csv(path_parents, header=None, usecols=[0, 1], names=["child", "parent"]) # store content of child - parent haplogroups in a dataFrame.
+    chpar = dict(zip(df_chpar["child"], df_chpar["parent"])) # transform previous dataFrame into a dictionary.
+    
     return chpar
 
 def call_par(string, chpar):
 
     """ Return the level at which a specific haplogroup is found, by using a recursive function
     that checks every time the father of a child. """
-    
-    if string not in chpar: # if the consulted child is not inside the dictionary.
+
+    parent = chpar.get(string) # get the parent
+    if parent is None: # if the consulted child is not inside the dictionary.
         return 0
-    else: # if it is:
-        parent = chpar.get(string) # get the parent.
-        return call_par(parent, chpar) + 1 # add 1 and call again the function.
+    return call_par(parent, chpar) + 1 # if it is, add 1 and call again the function.
 
 def ancder_par(string, par_dict, chpar):
 
     """ Return the total number of ancestral, derived and uncovered SNPs for parental branches """
 
-    if string not in chpar: # if the consulted child is not inside the dictionary.
+    parent = chpar.get(string) # get the parent.
+    if parent is None: # if the consulted child is not inside the dictionary.
         return 0
-
-    else: # if it is:
-        parent = chpar.get(string) # get the parent.
-        return ancder_par(parent, par_dict, chpar) + par_dict.get(parent, 0) # add the number of SNPs for the parent and call again the function.
+    return ancder_par(parent, par_dict, chpar) + par_dict.get(parent, 0) # if it is, add the number of SNPs for the parent and call again the function.
 
 def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, unique=True):
 
@@ -74,8 +61,9 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     ACTG nucleotides and unique positions. Also, add information for level, 
     Y-haplogroup and YFull translation for every SNP. """
 
-    df_raw = pd.read_csv(path_snps, dtype=object, sep=" ", header=None) # read the content of the .csv file.
-    df_raw.columns = ['Coordinates','ANC','DER','SNP-ID'] # assign column names.
+    # Read the content of the .csv file and assign column names.
+    df_raw = pd.read_csv(path_snps, dtype=object, sep=" ", header=None, 
+                         names=['Coordinates', 'ANC', 'DER', 'SNP-ID'])
 
     print(f"Loaded {len(df_raw)} SNPs")
 
@@ -85,24 +73,19 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
 
         converter = get_lifter('hg38', 'hg19', one_based=True) # function to do the liftover.
         chrom = 'chrY'
-        pos_list = []
 
-        # Transform coordinates for every position in hg38.
-        for pos in df_raw["Coordinates"]:
-    	    conversion = converter[chrom][int(pos)]
-    	    if conversion:
-    		    pos_list.append(int(conversion[0][1])) # if successful, keep only the value for the coordinates.
-    	    else:
-    		    pos_list.append(None) # if not successful, ignore the position and add "None".
+        # Helper function to do the liftover (used then in map()).
+        def convert_pos(p):
+            conversion = converter[chrom][int(p)] # apply the liftover.
+            return int(conversion[0][1]) if conversion else None # only return the position (if available).
 
-        df_raw["pos"] = pd.to_numeric(pos_list, errors="coerce") # add a new column named pos in df_raw. 
-        df_raw = df_raw.drop(columns=['Coordinates']) # exclude column named Coordinates. 
-        copy = df_raw.copy() # create a copy of df_raw.
+        df_raw["pos"] = df_raw["Coordinates"].map(convert_pos) # add a new column named pos in df_raw, using map method to apply function convert_pos to every coordinate.
+        df_raw = df_raw.drop(columns=['Coordinates']) # exclude column named Coordinates.
 
         # Filter for those positions out of the range for chrY (version hg19).
-        filtered_df = df_raw[df_raw["pos"]>chrY_len]
-        df_raw = df_raw[df_raw["pos"]<chrY_len] # define again df_raw but excluding rows where pos is out of range.
-        print(f"# Out of range positions in hg19: {len(filtered_df)}")
+        filtered_df = df_raw["pos"] > chrY_len
+        df_raw = df_raw[df_raw["pos"] < chrY_len] # define again df_raw but excluding rows where pos is out of range.
+        print(f"# Out of range positions in hg19: {filtered_df.sum()}")
 
     elif reference_genome == "hg19":
         df_raw = df_raw.rename(columns={'Coordinates': 'pos'}) # if already in hg19 version, just rename the column Coordinates. 
@@ -136,22 +119,17 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     df = df.sort_values(by="pos")
 
     # Filter for SNPs with different alternative and derived states. 
-    idx_same = (df["ref"]==df["alt"])
-    df = df[~idx_same]
+    df = df[df["ref"] != df["alt"]]
     print(f"# Ref & Alt different: {len(df)}")
 
     # Filter for SNPs with only [ACTG] alleles. 
     snps_acceptable = ["A", "C", "T", "G"]
-    idx_ref = df["ref"].isin(snps_acceptable)
-    idx_alt = df["alt"].isin(snps_acceptable)
-    idx_both = idx_ref & idx_alt
-    df = df[idx_both]
+    df = df[df["ref"].isin(snps_acceptable) & df["alt"].isin(snps_acceptable)]
     print(f"# Ref & Alt ACTG: {len(df)}")
 
     # Filter for unique positions (non repeated coordinates). 
     if unique:
-    	idx_dup = df.duplicated(subset=["pos", "ref", "alt"], keep="first")
-    	df = df[~idx_dup]
+    	df = df.drop_duplicated(subset=["pos", "ref", "alt"], keep="first")
     	print(f"# Unique SNP positions: {len(df)}")
 
     # Create a first dictionary to store values on haplogroups. 
@@ -193,64 +171,46 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     trans = []
 
     for name in df["SNP-ID"]:
-        ids = name.split(sep=",") # because a SNP can have more than one ID: XUYDB,ZHJD,YODN.
-        if len(ids) > 1: # if there is more than one name:
-            check = []
-            for item in ids: # check every name.
-                hap1 = OY_dict.get(item) # get the haplogroup for the SNP.
+        ids = name.split(",") # because a SNP can have more than one ID: XUYDB,ZHJD,YODN.
 
-                if hap1 and hap1 not in check: # if found and not already stored.
-                    check.append(hap1)
+        # Keep only unique entries as:
+        found_haps = []
+        for snp_id in ids: # check every name.
+            h = OY_dict.get(snp_id) # get the haplogroup for the SNP.
+            if h and h not in found_haps: # if found and not already stored.
+                found_haps.append(h)
 
-            if len(check) == 0: # if no haplogroup found, put None for haplogroup and its translation.
-                snp_hap.append("None")
-                trans.append("None")
-            elif len(check) > 0: # if more than one haplogroup found.
-                if len(check[0]) > 1: # if more than one haplogroup found in various lists.
-                    snp_hap.append(check[0]) # append haplogroups and no translation.
-                    trans.append("None")
-                else: # if just one haplogroup found:
-                    snp_hap.append(check[0][0]) # extract the first element of every list: [[YTSGE]]
-                    translation = trans_dict.get(check[0][0]) # extract translation.
-                    if translation: # if translation found, append it in the list.
-                        trans.append(translation)
-                    else:
-                        trans.append("None")
-            continue
+        # If no haplogroup found, put None for haplogroup and its translation.
+        if not found_haps:
+            current_hap = "None"
+            current_trans = "None"
 
-        # If the SNP is unique and is not part of a list separated by commas:
-        hap2 = OY_dict.get(ids[0]) # extract the haplogroup
-
-        # Same as before:
-        if hap2:
-            if len(hap2) > 1:
-                snp_hap.append(hap2)
-                trans.append("None")
-            else:
-                snp_hap.append(hap2[0])
-                translation = trans_dict.get(hap2[0])
-                if translation:
-                    trans.append(translation)
-                else:
-                    trans.append("None")
+        # If found:
         else:
-            snp_hap.append("None")
-            trans.append("None")
+            first_match = found_haps[0] # extract first element from the list, as there is only one).
+            
+            if len(first_match) > 1: # if more than one haplogroup found:
+                
+                # Add haplogroups and no translation.
+                current_hap = first_match 
+                current_trans = "None"
+            else: # if only one haplogroup found:
 
-    # Add two new columns to the final dataFrame.
+                hap_str = first_match[0] # extract the first element of every list: [[YTSGE]]
+                current_hap = hap_str 
+                current_trans = trans_dict.get(hap_str, "None") # extract ranslation, if not found add None to the list.
+
+        snp_hap.append(current_hap)
+        trans.append(current_trans)
+
+    # Assign columns
     df["Y-haplogroup"] = snp_hap
     df["YFull translation"] = trans
 
-    # Make a search for the level of every SNP in the tree.
-    levels = []
+    # Make a alos a search for the level of every SNP in the tree and add it as a new column.
+    df["Level"] = df["Y-haplogroup"].map(lambda x: call_par(x, chpar))
 
-    for hap in df["Y-haplogroup"]: # for every haplogroup use the recursive function and find the level.
-        level = call_par(hap, chpar)
-        levels.append(level)
-
-    df["Level"] = levels
-
-    return df.copy().reset_index(drop=True)
+    return df.reset_index(drop=True)
 
 def ref_alt_count(df_ch, bases=["A", "C", "G", "T"]):
 
@@ -262,13 +222,13 @@ def ref_alt_count(df_ch, bases=["A", "C", "G", "T"]):
     df_ch["ref#"]=0
     df_ch["alt#"]=0
 
-    for p in bases:
-        idx = df_ch["ref"] == p # get the indexes where reference allels is the base in the loop.
-        df_ch.loc[idx, "ref#"] = df_ch.loc[idx, p] # for the indexes found, add the allelic counts for that base (in column named as the base).
+    for base in bases:
+        # Update ref# where the 'ref' column matches the current base
+        df_ch.loc[df_ch["ref"] == base, "ref#"] = df_ch[base]
+        
+        # Update alt# where the 'alt' column matches the current base
+        df_ch.loc[df_ch["alt"] == base, "alt#"] = df_ch[base]
 
-        # Same procedure with alternative alleles. 
-        idx = df_ch["alt"] == p
-        df_ch.loc[idx, "alt#"] = df_ch.loc[idx, p]
     return df_ch
 
 def pulldown_bamtable(path_bam = "", o_file = "",
@@ -286,7 +246,7 @@ def call_y_bam(df=[], path_bam="",
                path_temp="",
                snip5=0, snip3=0, base_qual=20, map_qual=25):
 
-    """Return the Call Table from a .bam file"""
+    """ Return the pileup table after running the commad in a .bam file, both for all SNPs and derived sites oonly."""
 
     # Perform sanity checks whether input is there
     assert(os.path.exists(path_bam))
@@ -314,10 +274,10 @@ def call_y_bam(df=[], path_bam="",
     cov = df1[["A", "C", "G", "T"]].values
     cov1 = np.sum(cov, axis=1) # get the total count of reads per SNP.
     print(f"Average Coverage: {np.sum(cov1)/len(df):.4f}x") # sum the total of reads analysed and divide by the whole number of sites = Coverage as a proportion of the total.
-    print(f"#Sites covered: {np.sum(cov1>0)}/{len(df)}") # sites covered as those with a count higher than 0. 
+    print(f"#Sites covered: {np.sum(cov1>0)} / {len(df)}") # sites covered as those with a count higher than 0. 
 
     # Count the total number of reference and alternative alleles in each SNP. 
-    df_ch = ref_alt_count(df2, bases=["A", "C", "G", "T"])
+    df_ch = ref_alt_count(df2)
 
     # Get only SNPs with derived state (number of derived alleles higher than ancestral).
     idx_der = df_ch["alt#"]>df_ch["ref#"]
@@ -331,8 +291,8 @@ def call_y_bam(df=[], path_bam="",
 
 def div_anc_der(df, chpar, df_exclude=[]):
 
-    """ Calculate total, ancestral, derived, and uncovered SNPs per branch, 
-    as well as for parental branches. df_exclude: dataFrame of SNPs to filter """
+    """ Return a dataFrame with total, ancestral, derived, and uncovered SNPs 
+    per branch, as well as for parental branches. df_exclude: dataFrame of SNPs to filter """
 
     # If more than 1 SNP to be excluded in array, apply function to filter out the corresponding positions.
     if len(df_exclude)>0:
@@ -390,108 +350,68 @@ def div_anc_der(df, chpar, df_exclude=[]):
 
     return new_df
 
-def get_mismatch_snps(string, chpar, df_ch):
+def exclude_snps(df_ch, df_ex, col="SNP-ID"):
 
-    """ Get all SNPs that are mismatches of Haplogroup String """
-
-    dfs_mm = [] # list of mismatching SNP.
-
-    while True:
-
-        # Find all mismatches
-        dft = df_ch[df_ch["Y-haplogroup"]==string] # look for all SNPs in Node
-        dfd =dft[dft["ref#"]>dft["alt#"]] # extract those with reference count higher than alternative.
-        dfs_mm.append(dfd)
-
-        if string not in chpar: # if no parent found for haplogroup, this is the root.
-            dfs_mm = pd.concat(dfs_mm)
-            return dfs_mm
-
-        else: # if parent is found instead, get it and continue.
-            string = chpar[string]
-
-
-def exclude_snps(df_ch, df_ex, verbose=False, col="SNP-ID"):
-
-    """ Filter SNPs from df_ex in df_ch """
+    """ Return dataFrame df_ch with filtered SNPs in df_ex. """
 
     idx= df_ch[col].isin(df_ex[col]) # look for specific SNP names.
     df_ch2 = df_ch[~idx].copy() # exclude rows for filtered SNPs. 
-    if verbose:
-        print(f"Filtered to {len(df_ch2)}/{len(df_ch)}")
+
     return df_ch2
 
 def create_tree(string, level, df, chpar, file=None, total_par=0,RED = "\033[91m", GREEN = "\033[92m", GREY = "\033[38;5;245m", RESET = "\033[0m"):
 
-    """ Create a tree for an haplogroup in reverse order """
+    """ Create a tree for an haplogroup in reverse order, and write it down in the corresponding file. """
     
     # Extract row for the haplotype considered. 
     subset = df.loc[df["Branch"] == string]
     
     # If the haplogroup is found, extract the total number of ancestra and derived states, also in parental branches.
     if not subset.empty:
-        der = GREEN + str(subset["Derived"].iloc[0]) + RESET
-        anc = RED + str(subset["Ancestral"].iloc[0]) + RESET
-        der_par = GREEN + str(subset["#DER in par."].iloc[0]) + RESET
-        anc_par = RED + str(subset["#ANC in par."].iloc[0]) + RESET
-        total = GREY + "/" + str(subset["Total_SNPs"].iloc[0]) + RESET
 
-        total_par = int(subset["Total in par."].iloc[0])
-        string_par = GREY + "/" + str(total_par) + RESET
+        row = subset.iloc[0]
+
+        der = f"{GREEN}{row['Derived']}{RESET}"
+        anc = f"{RED}{row['Ancestral']}{RESET}"
+        der_par = f"{GREEN}{row['#DER in par.']}{RESET}"
+        anc_par = f"{RED}{row['#ANC in par.']}{RESET}"
+        total = f"{GREY}/{row['Total_SNPs']}{RESET}"
+
+        total_par = int(row["Total in par."])
+        string_par = f"{GREY}/{total_par}{RESET}"
 
     # If not found, add to the tree but with "Not found" strings.
     else:
-        der = GREY + "0, Not Found" + RESET 
-        anc = GREY + "0, Not Found" + RESET 
-        der_par = GREY + "0, Not Found" + RESET
-        anc_par = GREY + "0, Not Found" + RESET
-        total = ""
-        string_par = ""
+        not_found = f"{GREY}0, Not Found{RESET}"
+        der = anc = der_par = anc_par = not_found 
+        string_par = total = ""
 
     # If a parent exists, use it to make a new call
-    if string in chpar:
-        parent = chpar.get(string)
+    parent = chpar.get(string)
+    if parent:
         create_tree(parent, level - 1, df, chpar, file=file, total_par=total_par) # here resting 1 to the level refers to the reverse order.
 
-    # Create the three starting at the root node.
-    file.write(level*"  "+"|\n"+level*"  "+"|"+"___> "+str(string)+", Level: "+str(level)+", "+"DER in branch: "+str(der)+str(total)+", "+"ANC in branch: "+str(anc)+str(total)+", "+"DER in par.: "+str(der_par)+str(string_par)+", "+"ANC in par.: "+str(anc_par)+str(string_par)+"\n")
-
-
-def get_isogg(string, groups = ["E-M35", "G-P15", "I-M253", "I-S238", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]):
-
-    """ Return correspondencies between macrohaplogroups in OY and ISOGG 
-    (for relevant classification in Eupedia). """
-
-    # If the consulted haplogroup is one of the list:
-    if string in groups:
-
-        # Change the name for certain haplogroups:
-        if string == "R-L146":
-            return "R1a-L146"
-        elif string == "R-M343":
-            return "R1b-M343"
-        else:
-            return string
-    
-    parent = chpar.get(string) # get parent node.
-    
-    if parent is None:   # stop if no parent found
-        return None
-    
-    return get_isogg(parent) # recursive step.
+    # Create the tree starting at the root node.
+    indent = "  " * level
+    output = (
+        f"{indent}|\n"
+        f"{indent}|___> {string}, Level: {level}, "
+        f"DER in branch: {der}{total}, "
+        f"ANC in branch: {anc}{total}, "
+        f"DER in par.: {der_par}{string_par}, "
+        f"ANC in par.: {anc_par}{string_par}\n"
+    )
+    file.write(output)
 
 def create_path(string, df, chpar, path):
 
     """ Create a path as [sample: XXX1, XXXX2, XX32...] """
 
-    # Create a list to store the content.
-    subset = df.loc[df["Branch"] == string]
-
-    if string in chpar:
-        parent = chpar.get(string)
+    parent = chpar.get(string)
+    if parent:
         create_path(parent, df, chpar, path) # recursive step.
 
-    path.append(string)
+    path.append(string) # add node to the path.
 
 def network(data, width, height, avg_snps):
 
@@ -500,16 +420,16 @@ def network(data, width, height, avg_snps):
 
     G = nx.DiGraph()
 
-    samples = []
+    samples = set()
+
     for line in data: # here data as the file containing every of the paths to each sample.
         if not line or ":" not in line:
             continue
         
         # Store information for sample id and the different Y-haplogroups found.
         sample_id, path_str = line.split(':')
-        samples.append(sample_id)
-        #sample_id = sample_id.split("_")[0]
-        nodes = [n for n in path_str.split(',') if n!=" "]
+        samples.add(sample_id)
+        nodes = [n.strip() for n in path_str.split(',') if n.strip() and n.strip().lower() != 'nan']
         
         # Create connections between nodes, with distance as the number of average_snps in the branch.
         for i in range(len(nodes) - 1):
@@ -524,27 +444,23 @@ def network(data, width, height, avg_snps):
         G.add_edge(nodes[-1], sample_id, len=1)
     
     # Force vertical layout
-    G.graph['graph'] = {'rankdir': 'TB'}
+    G.graph['graph'] = {'rankdir':'TB'}
     pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
     
     # Specify dimensions of the network
-    plt.figure(figsize=(int(width), int(height))) 
+    plt.figure(figsize=(width, height)) 
     
     # Make a distinction between sample and haplogroup nodes.
-    all_nodes = list(G.nodes) 
-    haplos = [n for n in all_nodes if n not in samples]
+    haplos = [n for n in G.nodes if n not in samples]
     
     # Draw background edges
     nx.draw_networkx_edges(G, pos, arrows=True, edge_color='black', alpha=0.2, width=0.5)
-
-    #label_threshold = 15
     
     # Create a dictionary of labels for edges that exceed the threshold, just to take into account the length of every branch.
     edge_labels = {}
     for u, v, data in G.edges(data=True):
         weight = data.get('minlen', data.get('len', 0))
         
-        #if weight >= label_threshold:
         edge_labels[(u, v)] = f"{weight}"
 
     # Incorporate the branch length as a label in the network. 
@@ -553,10 +469,10 @@ def network(data, width, height, avg_snps):
         pos, 
         edge_labels=edge_labels, 
         font_size=7,
-        font_color='black', # distinct color to separate from node labels
-        rotate=True,          # align text with the branch direction
+        font_color='black',
+        rotate=True,
         alpha=0.8,
-        label_pos=0.5,        # places label at the midpoint of the edge
+        label_pos=0.5,
         verticalalignment = 'bottom',
         bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0.5)
     )
@@ -570,6 +486,7 @@ def network(data, width, height, avg_snps):
         "G-P15": "#d95f02",
         "I-M253": "#7570b3",
         "I-S238": "#e7298a",
+        "I-L416":"#7570b3",
         "J-M267": "#e6ab02",
         "J-PAGES00028": "#a6761d",
         "L-M22": "#90EE90",
@@ -606,7 +523,7 @@ def network(data, width, height, avg_snps):
             
             # Draw edges in network for this path in the color stored inside stpolten_colors.
             nx.draw_networkx_edges(G, pos, edgelist=highlight_edges, 
-                                   arrows=True, edge_color=stpolten_colors[node], width=2.0, alpha=0.9)
+                                   arrows=True, edge_color=colors[node], width=2.0, alpha=0.9)
     
     
     # Draw nodes for samples and haplogroups with high-density settings (smalle node sizes and font sizes).
@@ -681,24 +598,32 @@ def unique_lineages(df, data):
     samples = df["Sample"]
     samples = samples.to_list()
 
-    for samp, most_derived in zip(df["Sample"], df["Most derived"]): # iterate over rows to know the most derived haplogroup.
-        
-        for line in data:
-            if not line or ":" not in line:
-                continue
-            
-            # Save path and sample id separately.
-            sample_id, path_str = line.split(':')
-            nodes = [n for n in path_str.split(',') if n!=" "]
-            
-            # If the sample with the most derived haplogroup is different from the one in data:
-            if samp != sample_id:
-                if most_derived in nodes: # if the most derived haplogroup exists in the path of the sample in data.
-                    if sample_id in samples: # if that sample is included in the initial list of samples.
-                        samples = [x for x in samples if x !=samp] # redifine samples but excluding the sample found in the path of another.
-    return samples
+    # Store samples in data as a dictionary, to make a faster and more efficient search.
+    path_map = {}
+    for line in data:
+        if ":" not in line:
+            continue
+        sample_id, path_str = line.split(':')
+        nodes = {pd.notna(n) for n in path_str.split(',') if pd.notna(n)}
+        path_map[sample_id] = nodes
 
-def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_genome, create_network, width, height, transitions, tree, translation, mm, branches):
+    # Define a list of unique samples
+    unique_samples = set(df["Sample"])
+
+    for samp, most_derived in zip(df["Sample"], df["Most derived"]):
+        for other_id, other_nodes in path_map.items():
+
+            # If it's a different sample AND the haplogroup is in their path
+            if samp != other_id and most_derived in other_nodes:
+
+                # If this sample is still in the set, remove it
+                unique_samples.discard(samp)
+
+                break # move to the next 'samp' once the current one is invalidated
+
+    return list(unique_samples)
+
+def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_genome, create_network, width, height, transitions, tree, translation, mm, branches, ex_limit):
 
     """ Main function to run the y_call software. Other functions from the script included here."""
 
@@ -780,7 +705,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Post-process filtering (subset of SNPs to be exluded in data/input/mm_v3.tsv)
         df_cts = pd.read_csv(mm, sep="\t")
-        df_ex3 = df_cts[df_cts["count"]>5] # SNPs that are ancestral in test sample derived chains.
+        df_ex3 = df_cts[df_cts["count"]>ex_limit] # SNPs that are ancestral in test sample derived chains.
 
 
         # Filter for possible deaminations.
@@ -834,7 +759,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         file_path3.mkdir(parents=True, exist_ok=True)
 
         # Create a tree to know where is the sample located in Y-haplogroups
-        with open(f"data/output/trees/{iid}/tree_output_{iid}.txt", "a") as f:
+        with open(f"data/output/trees/{iid}/tree_output_{iid}.txt", "w") as f:
             f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {df.tail(1)["Branch"].iloc[0]}\n")
             create_tree(string = df.tail(1)["Branch"].iloc[0],level = int(df.tail(1)["Level"].iloc[0]), df=df, chpar=chpar, file=f)
             f.write("\n")
@@ -843,7 +768,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         with open(f"data/output/paths.txt", "a") as f2:
             path = []
             create_path(string = df.tail(1)["Branch"].iloc[0], df=df, chpar=chpar, path=path)
-            f2.write(iid.split("_")[0] + ": " + ",".join(path))
+            f2.write(iid + ": " + ",".join(map(str, path)))
             f2.write("\n")
         print(f"Y-haplogroup simplified tree saved as data/output/trees/{iid}/tree_output_{iid}.txt\nPath to most derived haplogroup included in data/output/paths.txt")
 
@@ -864,8 +789,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     })
 
     # Write a .csv file with the summary.
-    summary_df["Sample"] = summary_df["Sample"].str.split("_").str[0]
-    summary_df.to_csv("data/output/scores.csv", mode="a", header=False, index=False)
+    summary_df.to_csv("data/output/scores.csv", header=False, index=False)
     print(f"\nSaved Y-haplogroup calls for {len(samples)} individuals as data/output/scores.csv.")
 
     # Write a .csv file with SNPs per branch.
@@ -876,7 +800,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
     # Create dataFrame and save.
     df_snps = pd.DataFrame(data_list)
-    df_snps.to_csv("data/output/snps_branch.csv", mode="a", header=False, index=False)
+    df_snps.to_csv("data/output/snps_branch.csv", header=False, index=False)
 
     # Compute the total number of unique lineages for the dataset.
     # Use info for different paths in each sample and the corresponding scores. 
