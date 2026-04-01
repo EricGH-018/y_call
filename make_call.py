@@ -60,10 +60,10 @@ def main():
         help = "Provide a .csv file indicating the equivalent nomenclature for every haplogroup in a different database.")
     parser.add_argument("--mismatches", required=False, type=str, default="./data/input/mm_v3.tsv",
         help = "Set of SNPs to be filtered because of high count of ancestral alleles in a great number of samples.")
-    parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhap.db",
+    parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhaps.db",
         help = "Provide a .csv file with all SNPs contained in each haplogroup.")
     parser.add_argument("--ex_limit", required=False, type=int, default=5,
-        help = "Specify the minimum number of samples to consdier excluding a SNP (because of high ancestral state count).")
+        help = "Specify the minimum number of samples to consider excluding a SNP (because of high ancestral state count).")
 
     # Store arguments as variables:
     args = parser.parse_args()

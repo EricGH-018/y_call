@@ -129,7 +129,7 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
 
     # Filter for unique positions (non repeated coordinates). 
     if unique:
-    	df = df.drop_duplicated(subset=["pos", "ref", "alt"], keep="first")
+    	df = df.drop_duplicates(subset=["pos", "ref", "alt"], keep="first")
     	print(f"# Unique SNP positions: {len(df)}")
 
     # Create a first dictionary to store values on haplogroups. 
@@ -604,7 +604,7 @@ def unique_lineages(df, data):
         if ":" not in line:
             continue
         sample_id, path_str = line.split(':')
-        nodes = {pd.notna(n) for n in path_str.split(',') if pd.notna(n)}
+        nodes = {n.strip() for n in path_str.split(',') if n.strip() and n.strip().lower() != 'nan'}
         path_map[sample_id] = nodes
 
     # Define a list of unique samples
