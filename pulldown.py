@@ -723,11 +723,19 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         # Add a new column to the dataset as the ratio of #ANC in par. in #DER in par.
         dfd["Ratio"] = round(dfd["#ANC in par."] / dfd["#DER in par."],6)
 
-        # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral).
-        dfd["Score"] = round((dfd["#ANC in par."]*-3)+(dfd["#DER in par."])+(dfd["Ancestral"]*-3)+(dfd["Derived"]),6)
+        # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral) - Uncovered - #UNC in par.
+        dfd["Score"] = round((dfd["#ANC in par."]*-3)+(dfd["#DER in par."])+(dfd["Ancestral"]*-3)+(dfd["Derived"])-(dfd["Uncovered"])-(dfd["#UNC in par."]),6)
 
-        # Exclude haplogroup I-P38, as it's got a different name.  
-        df = dfd[dfd["Branch"]!="I-P38"].sort_values(by="Score")
+        # Get the most derived haplogroup according to score and level classification:
+        df = dfd[dfd["Branch"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
+
+        most_der = df.iloc[-1, -1] # score for the most derived haplogroup.
+        result = df[df.iloc[:, -1] == most_der] # select rows with that score.
+        
+        # If more than one row with the highest score:
+        if len(result) > 1:
+            result = result.sort_values(by="Level") # order by level.
+            result = result.tail(1) # select haplogroup with highest level.
 
         # Create directories for SNP and Y-haplogrooups information.
         file_path = pathlib.Path(f"./data/output/markers/{iid}")
@@ -760,24 +768,24 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Create a tree to know where is the sample located in Y-haplogroups
         with open(f"data/output/trees/{iid}/tree_output_{iid}.txt", "w") as f:
-            f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {df.tail(1)["Branch"].iloc[0]}\n")
-            create_tree(string = df.tail(1)["Branch"].iloc[0],level = int(df.tail(1)["Level"].iloc[0]), df=df, chpar=chpar, file=f)
+            f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {result["Branch"].iloc[0]}\n")
+            create_tree(string = result["Branch"].iloc[0],level = int(result["Level"].iloc[0]), df=df, chpar=chpar, file=f)
             f.write("\n")
 
         # Create a file to store all paths (for every sample), useful to then create the final tree
         with open(f"data/output/paths.txt", "a") as f2:
             path = []
-            create_path(string = df.tail(1)["Branch"].iloc[0], df=df, chpar=chpar, path=path)
+            create_path(string = result["Branch"].iloc[0], df=df, chpar=chpar, path=path)
             f2.write(iid + ": " + ",".join(map(str, path)))
             f2.write("\n")
         print(f"Y-haplogroup simplified tree saved as data/output/trees/{iid}/tree_output_{iid}.txt\nPath to most derived haplogroup included in data/output/paths.txt")
 
         # Keep info for summary
         samples.append(iid)
-        branches.append(df.tail(1)["Branch"].iloc[0])
-        levels.append(int(df.tail(1)["Level"].iloc[0]))
-        ratios.append(float(df.tail(1)["Ratio"].iloc[0]))
-        scores.append(int(df.tail(1)["Score"].iloc[0]))
+        branches.append(result["Branch"].iloc[0])
+        levels.append(int(result["Level"].iloc[0]))
+        ratios.append(float(result["Ratio"].iloc[0]))
+        scores.append(int(result["Score"].iloc[0]))
 
     # Create a final dataFrame to store all measures for every sample.
     summary_df = pd.DataFrame({
