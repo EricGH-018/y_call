@@ -54,6 +54,18 @@ def ancder_par(string, par_dict, chpar):
         return 0
     return ancder_par(parent, par_dict, chpar) + par_dict.get(parent, 0) # if it is, add the number of SNPs for the parent and call again the function.
 
+def support(string, chpar, derived_map):
+
+    """ Return the total number of derived parental branches (known as support) """
+
+    parent = chpar.get(string) # get the parent
+    count = derived_map.get(parent, 0) # get the proportion of derived respect to total SNPs in branch. 
+    
+    if parent is None: # if the consulted child is not inside the dictionary.
+        return count # return the count for the branch.
+    
+    return count + support(parent, chpar, derived_map) # if it is, increase the count by calling again the function.
+
 def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, unique=True):
 
     """ Return a dataFrame in Eigenstrat Format for SNPs,
@@ -715,19 +727,22 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Create a dataFrame to know the total number of SNPs per branch, and the corresponding ancestral and derived counts. 
         dft = div_anc_der(df_ch, chpar=chpar, df_exclude=df_ex3)
-        dfd = dft
 
         # Add a new column to the dataset as the ratio of derived SNPs in respect to the Total SNPs.
-        dfd["Derived/Total"] = round(dfd["Derived"] / dfd["Total_SNPs"],6)
+        dft["Derived/Total"] = round(dft["Derived"] / dft["Total_SNPs"],6)
 
         # Add a new column to the dataset as the ratio of #ANC in par. in #DER in par.
-        dfd["Ratio"] = round(dfd["#ANC in par."] / dfd["#DER in par."],6)
+        dft["#ANC in par./#DER in par."] = round(dft["#ANC in par."] / dft["#DER in par."],6)
+
+        # Add a new column to the dataset for the number of supporting derived nodes in each haplogroup.
+        derived_nodes = (dft.set_index("Branch")["Derived/Total"] > 0.95).astype(float).to_dict()
+        dft["Support"] = dft["Branch"].map(lambda x: support(x, chpar, derived_nodes))
 
         # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral) - Uncovered - #UNC in par.
-        dfd["Score"] = round((dfd["#ANC in par."]*-3)+(dfd["#DER in par."])+(dfd["Ancestral"]*-3)+(dfd["Derived"])-(dfd["Uncovered"])-(dfd["#UNC in par."]),6)
+        dft["Score"] = round((dft["#ANC in par."]*-3)+(dft["#DER in par."])+(dft["Ancestral"]*-3)+(dft["Derived"])+(dft["Uncovered"]*-2)+(dft["#UNC in par."]*-2) + (dft["Support"]),6)
 
         # Get the most derived haplogroup according to score and level classification:
-        df = dfd[dfd["Branch"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
+        df = dft[dft["Branch"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
 
         most_der = df.iloc[-1, -1] # score for the most derived haplogroup.
         result = df[df.iloc[:, -1] == most_der] # select rows with that score.
@@ -784,7 +799,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         samples.append(iid)
         branches.append(result["Branch"].iloc[0])
         levels.append(int(result["Level"].iloc[0]))
-        ratios.append(float(result["Ratio"].iloc[0]))
+        ratios.append(float(result["#ANC in par./#DER in par."].iloc[0]))
         scores.append(int(result["Score"].iloc[0]))
 
     # Create a final dataFrame to store all measures for every sample.
@@ -819,9 +834,6 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     data = []
     for i in items:
         data.append(i.strip())
-
-    summary_df = pd.read_csv("data/output/scores.csv",header=None)
-    summary_df.columns = ["Sample","Most derived","Level","Prop.","Score"]
 
     unique = unique_lineages(summary_df, data)
 

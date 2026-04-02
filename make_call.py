@@ -26,7 +26,7 @@ from pathlib import Path
 
 ## IMPORT FUNCTIONS ##
 
-from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, div_anc_der, create_parent_dct, create_path, network, unique_lineages
+from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, div_anc_der, create_parent_dct, create_path, network, unique_lineages, support
 
 def main():
 
