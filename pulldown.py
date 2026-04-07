@@ -770,15 +770,15 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         print(f"\n## Process output files for sample {iid} ##\n--------------------")
         # Write a .tsv file to consult SNPs for every branch.
-        df_ch.to_csv(f"data/output/markers/{iid}/snps_{iid}.tsv", sep="\t")
+        df_ch.to_csv(f"data/output/markers/{iid}/snps_{iid}.tsv", sep="\t", index=False)
         print(f"Saved data for pileup as data/output/markers/{iid}/snps_{iid}.tsv")
 
         # Write a .tsv file to consult only derived SNPs for every branch.
-        df_der.to_csv(f"data/output/markers/{iid}/snps_der_{iid}.tsv", sep="\t")
+        df_der.to_csv(f"data/output/markers/{iid}/snps_der_{iid}.tsv", sep="\t", index=False)
         print(f"Saved data for pileup (considering only derived sites) as data/output/markers/{iid}/snps_der_{iid}.tsv")
 
         # Write a .tsv file to consult information for every Y-haplogroup called. 
-        df.to_csv(f"data/output/haplogroups/{iid}/haplogroup_{iid}.tsv", sep="\t")
+        df.to_csv(f"data/output/haplogroups/{iid}/haplogroup_{iid}.tsv", sep="\t", index=False)
         print(f"Saved data for Y-haplgroup calls as data/output/haplogroups/{iid}/haplogroup_{iid}.tsv")
 
         # Write entries in the dictionary to see the total of SNPs per haplogroup.
