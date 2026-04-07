@@ -6,3 +6,8 @@ data/output/
 
 jobs/
 benchmarking/
+
+Jupyter_Vignette/data/output
+Jupyter_Vignette/figures
+Jupyter_Vignette/bin
+
