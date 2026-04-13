@@ -2,7 +2,7 @@
 data/input/YBrowse_snps_hg38-runtime.csv
 data/input/OYhaps.db
 data/input/OYchpar.csv
-data/output/
+data/output
 
 jobs/
 benchmarking/

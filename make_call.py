@@ -60,10 +60,13 @@ def main():
         help = "Provide a .csv file indicating the equivalent nomenclature for every haplogroup in a different database.")
     parser.add_argument("--mismatches", required=False, type=str, default="./data/input/mm_v3.tsv",
         help = "Set of SNPs to be filtered because of high count of ancestral alleles in a great number of samples.")
-    parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhaps.db",
+    parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhaps.csv",
         help = "Provide a .csv file with all SNPs contained in each haplogroup.")
     parser.add_argument("--ex_limit", required=False, type=int, default=5,
         help = "Specify the minimum number of samples to consider excluding a SNP (because of high ancestral state count).")
+    parser.add_argument("--ages", required=False, type=str, default="./data/input/ages.csv",
+        help = "Provide a .csv file with Formed and TMRCA age information for every haplogroup in the tree.")
+
 
     # Store arguments as variables:
     args = parser.parse_args()
@@ -76,7 +79,7 @@ def main():
            reference_genome=args.rg, create_network=args.create_network, 
            width=args.width, height=args.height, transitions=args.transitions,
            tree=args.haplogr_tree, translation=args.translation, mm=args.mismatches, 
-           branches=args.branches, ex_limit=args.ex_limit)
+           branches=args.branches, ex_limit=args.ex_limit, ages=args.ages)
 
 if __name__ == "__main__":
 

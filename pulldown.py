@@ -179,47 +179,43 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
 
 
     # Once dictionaries are creted, consult every SNP and Haplogroup. 
-    snp_hap = []
-    trans = []
+    df["temp_hap"] = None
+    df["temp_trans"] = None
 
-    for name in df["SNP-ID"]:
-        ids = name.split(",") # because a SNP can have more than one ID: XUYDB,ZHJD,YODN.
+    for index, row in df.iterrows():
+        ids = str(row["SNP-ID"]).split(",") # because a SNP can have more than one ID: XUYDB,ZHJD,YODN.
 
         # Keep only unique entries as:
         found_haps = []
         for snp_id in ids: # check every name.
-            h = OY_dict.get(snp_id) # get the haplogroup for the SNP.
+            h = OY_dict.get(snp_id) or OY_dict.get(snp_id+"*") # get the haplogroup for the SNP.
             if h and h not in found_haps: # if found and not already stored.
                 found_haps.append(h)
 
         # If no haplogroup found, put None for haplogroup and its translation.
         if not found_haps:
-            current_hap = "None"
-            current_trans = "None"
+            current_hap = ["None"]
+            current_trans = ["None"]
 
         # If found:
         else:
             first_match = found_haps[0] # extract first element from the list, as there is only one).
-            
-            if len(first_match) > 1: # if more than one haplogroup found:
-                
-                # Add haplogroups and no translation.
-                current_hap = first_match 
-                current_trans = "None"
-            else: # if only one haplogroup found:
+            current_hap = first_match # get the series of haplogroups found (maybe only one). 
+            current_trans = [trans_dict.get(h, "None") for h in current_hap] # get translation to YFull for every haplogroup.
 
-                hap_str = first_match[0] # extract the first element of every list: [[YTSGE]]
-                current_hap = hap_str 
-                current_trans = trans_dict.get(hap_str, "None") # extract ranslation, if not found add None to the list.
+        # Store lists in orignal dataFrame
+        df.at[index, "temp_hap"] = current_hap
+        df.at[index, "temp_trans"] = current_trans
 
-        snp_hap.append(current_hap)
-        trans.append(current_trans)
+    # Expand the dataFRame according to the lists stored in temporary columns
+    df = df.explode(["temp_hap", "temp_trans"]).reset_index(drop=True)
 
-    # Assign columns
-    df["Y-haplogroup"] = snp_hap
-    df["YFull translation"] = trans
+    # Rename columns and delete temporary columns
+    df["Y-haplogroup"] = df["temp_hap"]
+    df["YFull translation"] = df["temp_trans"]
+    df = df.drop(columns=["temp_hap", "temp_trans"])
 
-    # Make a alos a search for the level of every SNP in the tree and add it as a new column.
+    # Make a search for the level of every haplogroup in the tree and add it as a new column.
     df["Level"] = df["Y-haplogroup"].map(lambda x: call_par(x, chpar))
 
     return df.reset_index(drop=True)
@@ -333,21 +329,20 @@ def div_anc_der(df, chpar, df_exclude=[]):
         - new_df["Derived"]
     )
 
-    # Rename column called Y-haplogroup
-    new_df = new_df.rename(columns={"Y-haplogroup": "Branch"})
+    # Order values in df by the score.
     new_df = new_df.sort_values(by="Level")
 
     # Use previously defined function to look for all ANC, DER and UNC SNPs in parental branches. First, transform into a dictionary to speed up processing.
-    anc_lookup = new_df.set_index("Branch")["Ancestral"].to_dict()
-    der_lookup = new_df.set_index("Branch")["Derived"].to_dict()
-    unc_lookup = new_df.set_index("Branch")["Uncovered"].to_dict()
+    anc_lookup = new_df.set_index("Y-haplogroup")["Ancestral"].to_dict()
+    der_lookup = new_df.set_index("Y-haplogroup")["Derived"].to_dict()
+    unc_lookup = new_df.set_index("Y-haplogroup")["Uncovered"].to_dict()
 
     anc_par = []
     der_par = []
     unc_par = []
 
     # For each branch, find the total number of ancestral and derived SNPs in parent using ancder_par() function.
-    for branch in new_df["Branch"]:
+    for branch in new_df["Y-haplogroup"]:
         anc_par.append(ancder_par(branch, anc_lookup, chpar=chpar))
         der_par.append(ancder_par(branch, der_lookup, chpar=chpar))
         unc_par.append(ancder_par(branch, unc_lookup, chpar=chpar))
@@ -376,7 +371,7 @@ def create_tree(string, level, df, chpar, file=None, total_par=0,RED = "\033[91m
     """ Create a tree for an haplogroup in reverse order, and write it down in the corresponding file. """
     
     # Extract row for the haplotype considered. 
-    subset = df.loc[df["Branch"] == string]
+    subset = df.loc[df["Y-haplogroup"] == string]
     
     # If the haplogroup is found, extract the total number of ancestra and derived states, also in parental branches.
     if not subset.empty:
@@ -415,15 +410,37 @@ def create_tree(string, level, df, chpar, file=None, total_par=0,RED = "\033[91m
     )
     file.write(output)
 
-def create_path(string, df, chpar, path):
+def create_path(string, df, chpar, path=None):
 
     """ Create a path as [sample: XXX1, XXXX2, XX32...] """
 
+    if path is None:
+        path = []
+
     parent = chpar.get(string)
+
     if parent:
-        create_path(parent, df, chpar, path) # recursive step.
+        if parent not in path:
+            path = create_path(parent, df, chpar) # recursive step.
 
     path.append(string) # add node to the path.
+    return(path)
+
+def common_hap(paths):
+
+    """ Return the common haplogroup between a subste of paths (wether it is the MRCA or the common
+    most derived Y-haplogroup) """
+
+    path = paths[0] # define path as the first entry of the list (starting point).
+
+    for cons_path in paths[1:]: # for every path contained in the list provided to the function
+
+        path = [x for x in path if x in cons_path] # extract only common elements between paths.
+
+    # Define the haplogroup as the last entry of the path. 
+    haplogroup = path[-1]
+
+    return haplogroup
 
 def network(data, width, height, avg_snps):
 
@@ -490,20 +507,29 @@ def network(data, width, height, avg_snps):
     )
 
     # Define also at the bottom of the network which samples correspond to every macrohaplogroup.
-    roots =  ["E-M35", "G-P15", "I-M253", "I-S238", "I-L416", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]
-    
+    roots_OY =  ["E-M35", "G-P15", "I-M253", "I-S238", "I-L416", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]
+    roots_ytree =  ["E-M35", "G-P15", "I1", "I-L460", "I-Y283553", "J1", "J2","L-M22", "R1a", "R1b", "T"]    
+    roots = list(set(roots_OY + roots_ytree))
+
     # Set of colors for every macrohaplogroup.
     colors = {
         "E-M35": "#1b9e77",
         "G-P15": "#d95f02",
         "I-M253": "#7570b3",
+        "I1": "#7570b3",
         "I-S238": "#e7298a",
-        "I-L416":"#7570b3",
+        "I-L460": "#e7298a",
+        "I-L416": "#7570b3",
+        "I-Y283553": "#7570b3",
         "J-M267": "#e6ab02",
+        "J1": "#e6ab02",
         "J-PAGES00028": "#a6761d",
+        "J2": "#a6761d",
         "L-M22": "#90EE90",
         "R-L146": "#fb9a99",
+        "R1a": "#fb9a99",
         "R-M343": "#e31a1c",
+        "R1b": "#e31a1c",
         "T": "#6a3d9a"
     }
     
@@ -513,6 +539,8 @@ def network(data, width, height, avg_snps):
         "G-P15": "G2a",
         "I-M253": "I1",
         "I-S238": "I2a",
+        "I-L460": "I2a",
+        "I-Y283553": "I2b",
         "J-M267": "J1",
         "J-PAGES00028": "J2",
         "L-M22": "L-M22",
@@ -588,7 +616,7 @@ def network(data, width, height, avg_snps):
                    color=color, linewidth=9)
         
         # Label the bar (slightly below).
-        plt.text((x_min + x_max) / 2, (bar_y + layer_y) - 80, alt_names[root], 
+        plt.text((x_min + x_max) / 2, (bar_y + layer_y) - 80, alt_names.get(root, root), 
                  color="black", ha='center', va='top', 
                  fontsize=30, rotation=0)
 
@@ -635,7 +663,7 @@ def unique_lineages(df, data):
 
     return list(unique_samples)
 
-def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_genome, create_network, width, height, transitions, tree, translation, mm, branches, ex_limit):
+def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_genome, create_network, width, height, transitions, tree, translation, mm, branches, ex_limit, ages):
 
     """ Main function to run the y_call software. Other functions from the script included here."""
 
@@ -703,8 +731,15 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     ratios = []
     scores = []
 
+    # Store in lists ages for every haplogroup:
+    formed = []
+    tmrca = []
+
     # Create a dictionary to store the total number of SNPs per haplogroup:
     dict_snps = {}
+
+    # Read the file that stores information for age on every haplogroup.
+    ages = pd.read_csv(ages)
 
     for sample in routes:
 
@@ -744,24 +779,34 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         dft["#ANC in par./#DER in par."] = round(dft["#ANC in par."] / dft["#DER in par."],6)
 
         # Add a new column to the dataset for the number of supporting derived nodes in each haplogroup.
-        derived_nodes = (dft.set_index("Branch")["Derived/Total"] > 0.95).astype(float).to_dict()
-        dft["Support"] = dft["Branch"].map(lambda x: support(x, chpar, derived_nodes))
+        derived_nodes = (dft.set_index("Y-haplogroup")["Derived/Total"] > 0.95).astype(float).to_dict()
+        dft["Support"] = dft["Y-haplogroup"].map(lambda x: support(x, chpar, derived_nodes))
 
         # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral) - Uncovered - #UNC in par.
         dft["Score"] = round((dft["#ANC in par."]*-3)+(dft["#DER in par."])+(dft["Ancestral"]*-3)+(dft["Derived"])+(dft["Uncovered"]*-2)+(dft["#UNC in par."]*-2) + (dft["Support"]),6)
 
         # Get the most derived haplogroup according to score and level classification:
-        df = dft[dft["Branch"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
+        df = dft[dft["Y-haplogroup"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
 
         most_der = df.iloc[-1, -1] # score for the most derived haplogroup.
         result = df[df.iloc[:, -1] == most_der] # select rows with that score.
         
         # If more than one row with the highest score:
         if len(result) > 1:
-            result = result.sort_values(by="Level") # order by level.
-            result = result.tail(1) # select haplogroup with highest level.
+            paths = []
 
-        # Create directories for SNP and Y-haplogrooups information.
+            # Define paths for every haplogroup with the highest score
+            for haplo in result["Y-haplogroup"]:
+                paths.append(create_path(string=haplo,df=df,chpar=chpar))
+
+            # Decide the MRCA from the paths provided
+            haplogr = common_hap(paths)
+            if haplogr in df["Y-haplogroup"]:
+                result = df[df["Y-haplogroup"]==haplogr]
+            else:
+                result = OY[OY["Y-haplogroup"]==haplogr]
+
+        # Create directories for SNP and Y-haplogroups information.
         file_path = pathlib.Path(f"./data/output/markers/{iid}")
         file_path.mkdir(parents=True, exist_ok=True)
 
@@ -782,7 +827,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         print(f"Saved data for Y-haplgroup calls as data/output/haplogroups/{iid}/haplogroup_{iid}.tsv")
 
         # Write entries in the dictionary to see the total of SNPs per haplogroup.
-        for haplo, total_snps in zip(df["Branch"], df["Total_SNPs"]):
+        for haplo, total_snps in zip(df["Y-haplogroup"], df["Total_SNPs"]):
             if haplo in dict_snps:
                 dict_snps[haplo].append(int(total_snps))
             else:
@@ -794,8 +839,8 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Create a tree to know where is the sample located in Y-haplogroups
         with open(f"data/output/trees/{iid}/tree_output_{iid}.txt", "w") as f:
-            f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {result["Branch"].iloc[0]}\n")
-            create_tree(string = result["Branch"].iloc[0],level = int(result["Level"].iloc[0]), df=df, chpar=chpar, file=f)
+            f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {result["Y-haplogroup"].iloc[0]}\n")
+            create_tree(string = result["Y-haplogroup"].iloc[0],level = int(result["Level"].iloc[0]), df=df, chpar=chpar, file=f)
             f.write("\n")
 
         # Create a file to store all paths (for every sample), useful to then create the final tree
@@ -807,8 +852,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
                 existing_entries = {line.strip() for line in f if line.strip()}
 
         with open(file_path, "a") as file:
-            path = []
-            create_path(string=result["Branch"].iloc[0], df=df, chpar=chpar, path=path)
+            path = create_path(string=result["Y-haplogroup"].iloc[0], df=df, chpar=chpar)
             content = f"{iid}: {','.join(map(str, path))}"
     
             if content not in existing_entries:
@@ -820,10 +864,21 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Keep info for summary
         samples.append(iid)
-        branches.append(result["Branch"].iloc[0])
+        branches.append(result["Y-haplogroup"].iloc[0])
         levels.append(int(result["Level"].iloc[0]))
-        ratios.append(float(result["#ANC in par./#DER in par."].iloc[0]))
-        scores.append(int(result["Score"].iloc[0]))
+
+        if "#ANC in par./#DER in par." in result.columns and "Score" in result.columns:
+            ratios.append(float(result["#ANC in par./#DER in par."].iloc[0]))
+            scores.append(int(result["Score"].iloc[0]))
+        else:
+            ratios.append(0.0)
+            scores.append(0)
+
+        # Keep infor for haplogroup ages
+        formed_id = ages.set_index("Y-haplogroup")["Formed"].get(result["Y-haplogroup"].iloc[0])
+        formed.append(formed_id)
+        tmrca_id = ages.set_index("Y-haplogroup")["TMRCA"].get(result["Y-haplogroup"].iloc[0])     
+        tmrca.append(tmrca_id)
 
     # Create a final dataFrame to store all measures for every sample.
     summary_df = pd.DataFrame({
@@ -833,11 +888,23 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
         "Ratio": ratios,
         "Score": scores
     })
-    summary_df = summary_df.drop_duplicates(subset=['Sample'], keep='last') # in case the algorith runs a sample twice.
+    #summary_df = summary_df.drop_duplicates(subset=['Sample'], keep='last') # in case the algorith runs a sample twice.
 
     # Write a .csv file with the summary.
     summary_df.to_csv("data/output/scores.csv", mode="a", header=False, index=False)
     print(f"Saved Y-haplogroup calls for {len(samples)} individuals as data/output/scores.csv")
+
+    # Create also a dataFRame to store information on age.
+    ages_df = pd.DataFrame({
+        "Sample": samples,
+        "Most derived": branches,
+        "Formed": formed,
+        "TMRCA": tmrca
+    })
+
+    # Write a .csv file for ages.
+    ages_df.to_csv("data/output/hap_ages.csv", mode="a", header=False, index=False)
+    print(f"Saved Y-haplogroup ages for {len(samples)} individuals as data/output/hap_ages.csv")
 
     # Write a .csv file with SNPs per branch.
     data_list = []
@@ -847,7 +914,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
     # Create dataFrame and save.
     df_snps = pd.DataFrame(data_list)
-    df_snps.to_csv("data/output/snps_branch.csv", header=False, index=False)
+    df_snps.to_csv("data/output/snps_branch.csv", mode="a", header=False, index=False)
 
     # Compute the total number of unique lineages for the dataset.
     # Use info for different paths in each sample and the corresponding scores. 
