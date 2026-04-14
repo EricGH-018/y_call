@@ -967,3 +967,20 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
 
         print(f"Tree created for a total of {len(data)} samples")
 
+
+def get_mismatch_snps(string, chpar, df_ch):
+    """Get all SNPs that are mismatches of Haplogroup String"""
+    dfs_mm = [] # List of mismatching SNP dfs
+    
+    while True:        
+        ### Find all mismatches
+        dft = df_ch[df_ch["Y-haplogroup"]==string] # All SNPs in Node
+        dfd =dft[dft["ref#"]>dft["alt#"]]
+        dfs_mm.append(dfd)  	
+
+        if string not in chpar: # If Root exit
+            dfs_mm = pd.concat(dfs_mm)
+            return dfs_mm
+        
+        else:
+            string = chpar[string] # Get Parent Node
