@@ -969,7 +969,9 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
 
 
 def get_mismatch_snps(string, chpar, df_ch):
-    """Get all SNPs that are mismatches of Haplogroup String"""
+
+    """Get all SNPs with a higher ancestral count, over derived count"""
+
     dfs_mm = [] # List of mismatching SNP dfs
     
     while True:        
@@ -984,3 +986,27 @@ def get_mismatch_snps(string, chpar, df_ch):
         
         else:
             string = chpar[string] # Get Parent Node
+
+def create_tree(node,tree=None):
+    if tree == None:
+        tree=[]
+    for child in node.get("children", []):
+        tree.append(f"{node["id"]},{child["id"]}")
+        create_tree(child, tree)
+    return tree
+
+def get_haplog(node,branches=None):
+    if branches == None:
+        branches=[]
+    for child in node.get("children", []):
+        branches.append(f"{child["id"]},{child["snps"]}")
+        get_haplog(child, branches)
+    return branches
+
+def get_age(node,ages=None):
+    if ages == None:
+        ages=[]
+    for child in node.get("children", []):
+        ages.append(f"{child["id"]},{child["formed"]},{child["formedlowage"]},{child["formedhighage"]},{child["tmrca"]},{child["tmrcalowage"]},{child["tmrcahighage"]}")
+        get_age(child, ages)
+    return ages
