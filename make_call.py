@@ -42,7 +42,7 @@ def main():
         help = "Minimum base quality.")
     parser.add_argument("--map_qual", required=False, type=int, default=25,
         help = "Minimum mapping quality.")
-    parser.add_argument("--snps", required=False, type=str, default="./data/input/YBrowse_snps_hg38-runtime.csv",
+    parser.add_argument("--snps", required=False, type=str, default="./data/input/YFull/snps.csv",
                         help = "Provide a .csv file containing information for SNPs in Y chromosome, including the following columns: pos, ref, alt, ID.")
     parser.add_argument("--rg", required=False, type=str, default="hg38",
         help = "Specify the reference genome for genome coordinates (either hg38 or hg19).")
@@ -54,13 +54,15 @@ def main():
         help = "Height of the network created.")
     parser.add_argument("--transitions", required=False, type=str, default="N",
         help = "Filter for transitions in the analysis (C -> T and G -> A), specify Y if wanted.")
-    parser.add_argument("--haplogr_tree", required=False, type=str, default="./data/input/OYchpar.csv",
+    parser.add_argument("--database", required=False, type=str, default="YFull",
+        help = "Specify the dataset to be used in the analysis, between OY, YFull or other (the program looks for ./data/input/[database]/).")
+    parser.add_argument("--haplogr_tree", required=False, type=str, default="./data/input/YFull/tree.csv",
         help = "Provide a .csv file indicating for every haplogroup its parent. Two columns, first child node, and second parent node.")
     parser.add_argument("--translation", required=False, type=str, default="./data/input/YF-translations.csv",
         help = "Provide a .csv file indicating the equivalent nomenclature for every haplogroup in a different database.")
-    parser.add_argument("--mismatches", required=False, type=str, default="./data/input/mm_v3.tsv",
+    parser.add_argument("--mismatches", required=False, type=str, default="./data/input/YFull/mm.tsv",
         help = "Set of SNPs to be filtered because of high count of ancestral alleles in a great number of samples.")
-    parser.add_argument("--branches", required=False, type=str, default="./data/input/OYhaps.csv",
+    parser.add_argument("--branches", required=False, type=str, default="./data/input/YFull/haps.csv",
         help = "Provide a .csv file with all SNPs contained in each haplogroup.")
     parser.add_argument("--ex_limit", required=False, type=int, default=5,
         help = "Specify the minimum number of samples to consider excluding a SNP (because of high ancestral state count).")
@@ -71,15 +73,22 @@ def main():
     # Store arguments as variables:
     args = parser.parse_args()
 
+    # Select different input files depending on the database.
+    database=args.database
+
+    path_snps=f"./data/input/{database}/snps.csv"
+    tree=f"./data/input/{database}/tree.csv"
+    mm=f"./data/input/{database}/mm.tsv"
+    branches=f"./data/input/{database}/haps.csv"
+
     print("\n--- RUNNING y_call SOFTWARE ---\n")
 
     # Run function for the software: y_call.
     y_call(bam_list=args.bam_list, initial=args.index_i, final=args.index_f,
-           base_qual=args.base_qual, map_qual=args.map_qual, path_snps=args.snps,
+           base_qual=args.base_qual, map_qual=args.map_qual, database=args.database,
            reference_genome=args.rg, create_network=args.create_network, 
-           width=args.width, height=args.height, transitions=args.transitions,
-           tree=args.haplogr_tree, translation=args.translation, mm=args.mismatches, 
-           branches=args.branches, ex_limit=args.ex_limit, ages=args.ages)
+           width=args.width, height=args.height, transitions=args.transitions
+           translation=args.translation, ex_limit=args.ex_limit, ages=args.ages)
 
 if __name__ == "__main__":
 

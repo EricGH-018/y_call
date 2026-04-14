@@ -1,7 +1,6 @@
 # Ignore these files and folders when doing: git push master.
-data/input/YBrowse_snps_hg38-runtime.csv
-data/input/OYhaps.db
-data/input/OYchpar.csv
+data/input/OY/
+data/input/YFull
 data/output
 
 jobs/

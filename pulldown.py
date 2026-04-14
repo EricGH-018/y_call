@@ -144,6 +144,7 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     	df = df.drop_duplicates(subset=["pos", "ref", "alt"], keep="first")
     	print(f"# Unique SNP positions: {len(df)}")
 
+    print("Loading haplogroups information...")
     # Create a first dictionary to store values on haplogroups. 
     OY_dict = {}
 
@@ -165,17 +166,18 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
     # Create a second dictionary for Yfull translations in the identified haplogroups. 
     trans_dict = {}
 
-    with open(translation, "r") as f:
-        for line in f:
-            # split by whitespace
-            items = line.strip().split(sep=",") # because every line is: A-XXXX,A-VWXXX
-            if not items:
-                continue
+    if pathlib.Path(translation).exists():
+        with open(translation, "r") as f:
+            for line in f:
+                # split by whitespace
+                items = line.strip().split(sep=",") # because every line is: A-XXXX,A-VWXXX
+                if not items:
+                    continue
 
-            hapl = items[1]
-            yfull_conv = items[0]
+                hapl = items[1]
+                yfull_conv = items[0]
 
-            trans_dict[hapl] = yfull_conv # every haplogroup (key) with its translation (value).
+                trans_dict[hapl] = yfull_conv # every haplogroup (key) with its translation (value).
 
 
     # Once dictionaries are creted, consult every SNP and Haplogroup. 
@@ -207,12 +209,13 @@ def load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, 
         df.at[index, "temp_hap"] = current_hap
         df.at[index, "temp_trans"] = current_trans
 
-    # Expand the dataFRame according to the lists stored in temporary columns
+    # Expand the dataFrame according to the lists stored in temporary columns
     df = df.explode(["temp_hap", "temp_trans"]).reset_index(drop=True)
 
     # Rename columns and delete temporary columns
-    df["Y-haplogroup"] = df["temp_hap"]
+    df["Y-haplogroup"] = df["temp_hap"] 
     df["YFull translation"] = df["temp_trans"]
+    
     df = df.drop(columns=["temp_hap", "temp_trans"])
 
     # Make a search for the level of every haplogroup in the tree and add it as a new column.
@@ -242,7 +245,7 @@ def ref_alt_count(df_ch, bases=["A", "C", "G", "T"]):
 def pulldown_bamtable(path_bam = "", o_file = "",
                       bamtable = "./bin/BamTable",
                       snip5=0, snip3=0, base_qual=20, map_qual=25, 
-                      path_bed = "./data/output/OY_snps.bed"):
+                      path_bed = ""):
 
     """ Command for pileup using a .bam file and the corresponding coordinates in a .bed file, to create an output file. """
 
@@ -250,7 +253,7 @@ def pulldown_bamtable(path_bam = "", o_file = "",
     os.system(run_cmd)
 
 def call_y_bam(df=[], path_bam="",
-               path_bed = "./data/output/OY_snps.bed",
+               path_bed = "",
                path_temp="",
                snip5=0, snip3=0, base_qual=20, map_qual=25):
 
@@ -663,7 +666,7 @@ def unique_lineages(df, data):
 
     return list(unique_samples)
 
-def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_genome, create_network, width, height, transitions, tree, translation, mm, branches, ex_limit, ages):
+def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_genome, create_network, width, height, transitions, translation, ex_limit, ages):
 
     """ Main function to run the y_call software. Other functions from the script included here."""
 
@@ -674,21 +677,26 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     temp_path = pathlib.Path("./data/output/temp")
     temp_path.mkdir(parents=True, exist_ok=True)
 
+    path_snps=f"./data/input/{database}/snps.csv"
+    tree=f"./data/input/{database}/tree.csv"
+    mm=f"./data/input/{database}/mm.tsv"
+    branches=f"./data/input/{database}/haps.csv"
+
     # Create a dictionary to store relations between child (key) and parent (value) haplogroups.
     chpar = create_parent_dct(path_parents=tree)
 
     print("\n## Process input data ##\n--------------------")
     # Path to the set of markers considered in the analysis (after filtering). 
-    file_OY = pathlib.Path("./data/output/all_snps.csv")
+    file_OY = pathlib.Path(f"./data/output/all_snps_{database}.csv")
 
     if file_OY.exists():
-        print("Dataset for filtered markers already saved: ./data/output/all_snps.csv")
+        print(f"Dataset for filtered markers already saved: ./data/output/all_snps_{database}.csv")
         OY = pd.read_csv(file_OY)
-        path_bed = pathlib.Path("./data/output/OY_snps.bed")
+        path_bed = pathlib.Path(f"./data/output/{database}_snps.bed")
         if path_bed.exists:
             print(f"Corresponding .bed file in {path_bed}")
         else:
-            savepath = "./data/output/OY_snps.bed" # save a BED file with coordinates for every SNP. 
+            savepath = f"./data/output/{database}_snps.bed" # save a BED file with coordinates for every SNP. 
 
             dft = OY[["chrom", "pos"]].copy()
             dft["pos1"] = dft["pos"]
@@ -697,12 +705,12 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     else:
         print("Dataset for filtered markers missing\nCreating file...")
         OY = load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, unique=True) # import all SNPs in .csv file. 
-        OY.to_csv("data/output/all_snps.csv")
-        print(f"Done\nSaved as ./data/output/all_snps.csv")
+        OY.to_csv(f"data/output/all_snps_{database}.csv")
+        print(f"Done\nSaved as ./data/output/all_snps_{database}.csv")
 
         OY = OY.sort_values(by="pos") # sort by position.
 
-        savepath = "./data/output/OY_snps.bed" # save a BED file with coordinates for every SNP. 
+        savepath = f"./data/output/{database}_snps.bed" # save a BED file with coordinates for every SNP. 
 
         dft = OY[["chrom", "pos"]].copy()
         dft["pos1"] = dft["pos"]
@@ -732,14 +740,17 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     scores = []
 
     # Store in lists ages for every haplogroup:
-    formed = []
-    tmrca = []
+    ages_exist = False
+    if pathlib.Path(ages).exists():
+        formed = []
+        tmrca = []
+        ages_exist = True
+
+        # Read the file that stores information for age on every haplogroup.
+        ages = pd.read_csv(ages)
 
     # Create a dictionary to store the total number of SNPs per haplogroup:
     dict_snps = {}
-
-    # Read the file that stores information for age on every haplogroup.
-    ages = pd.read_csv(ages)
 
     for sample in routes:
 
@@ -755,7 +766,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
 
         # Do the call, depending on if the user has specified a minimum base quality and mapping quality.
         df_ch, df_der = call_y_bam(df=OY, path_bam=bam,
-                                   path_bed='./data/output/OY_snps.bed',
+                                   path_bed=f'./data/output/{database}_snps.bed',
                                    path_temp=f'./data/output/temp/{iid}_temp.tsv',
                                    snip5=0, snip3=0, base_qual=base_qual, map_qual=map_qual)
 
@@ -875,10 +886,11 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
             scores.append(0)
 
         # Keep infor for haplogroup ages
-        formed_id = ages.set_index("Y-haplogroup")["Formed"].get(result["Y-haplogroup"].iloc[0])
-        formed.append(formed_id)
-        tmrca_id = ages.set_index("Y-haplogroup")["TMRCA"].get(result["Y-haplogroup"].iloc[0])     
-        tmrca.append(tmrca_id)
+        if ages_exist:
+            formed_id = ages.set_index("Y-haplogroup")["Formed"].get(result["Y-haplogroup"].iloc[0])
+            formed.append(formed_id)
+            tmrca_id = ages.set_index("Y-haplogroup")["TMRCA"].get(result["Y-haplogroup"].iloc[0])     
+            tmrca.append(tmrca_id)
 
     # Create a final dataFrame to store all measures for every sample.
     summary_df = pd.DataFrame({
@@ -895,16 +907,17 @@ def y_call(bam_list, initial, final, base_qual, map_qual, path_snps, reference_g
     print(f"Saved Y-haplogroup calls for {len(samples)} individuals as data/output/scores.csv")
 
     # Create also a dataFRame to store information on age.
-    ages_df = pd.DataFrame({
-        "Sample": samples,
-        "Most derived": branches,
-        "Formed": formed,
-        "TMRCA": tmrca
-    })
+    if ages_exist:
+        ages_df = pd.DataFrame({
+            "Sample": samples,
+            "Most derived": branches,
+            "Formed": formed,
+            "TMRCA": tmrca
+        })
 
-    # Write a .csv file for ages.
-    ages_df.to_csv("data/output/hap_ages.csv", mode="a", header=False, index=False)
-    print(f"Saved Y-haplogroup ages for {len(samples)} individuals as data/output/hap_ages.csv")
+        # Write a .csv file for ages.
+        ages_df.to_csv("data/output/hap_ages.csv", mode="a", header=False, index=False)
+        print(f"Saved Y-haplogroup ages for {len(samples)} individuals as data/output/hap_ages.csv")
 
     # Write a .csv file with SNPs per branch.
     data_list = []
