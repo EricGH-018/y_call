@@ -4,7 +4,7 @@ import json
 import re
 import argparse
 
-from pulldown import create_tree, get_haplog, get_age 
+from pulldown import get_tree, get_haplog, get_age 
 
 # Add a description for the script and the corresponding arguments passed to it.
 parser = argparse.ArgumentParser(description = "Create necessary input files from a given tree in JSON format")

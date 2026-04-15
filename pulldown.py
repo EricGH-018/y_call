@@ -32,7 +32,13 @@ def create_parent_dct(path_parents):
 
     df_chpar = pd.read_csv(path_parents, header=None, usecols=[0, 1], names=["child", "parent"]) # store content of child - parent haplogroups in a dataFrame.
     chpar = dict(zip(df_chpar["child"], df_chpar["parent"])) # transform previous dataFrame into a dictionary.
-    
+
+    # Change also NaN values for the name of the root.
+    chpar = {
+    k: ("Y-Chromosome Adam" if (v is None or (isinstance(v, float) and np.isnan(v))) else v)
+    for k, v in chpar.items()
+    } 
+
     return chpar
 
 def call_par(string, chpar):
@@ -987,7 +993,7 @@ def get_mismatch_snps(string, chpar, df_ch):
         else:
             string = chpar[string] # Get Parent Node
 
-def create_tree(node,tree=None):
+def get_tree(node,tree=None):
     if tree == None:
         tree=[]
     for child in node.get("children", []):
