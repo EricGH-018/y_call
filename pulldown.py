@@ -621,7 +621,7 @@ def nwk_tree(paths, width, height, avg_snps, nwk_out, data):
                   color=color, linewidth=8)
 
         # Draw text for the macrohaplogroup in every line
-        ax.text(x_pos + 3.5, (ymin + ymax) / 2, macros[index], 
+        ax.text(x_pos + 4, (ymin + ymax) / 2, macros[index], 
             color="black", va='center', fontsize=15)
 
         index+=1

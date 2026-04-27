@@ -3,6 +3,7 @@
 # FIRST LINES TO SPECIFFY SLURM DETAILS OF THE JOB
 
 #SBATCH --job-name=y_call
+#SBATCH --mem=8G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=standard
