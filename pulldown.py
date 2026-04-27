@@ -14,6 +14,7 @@ import os as os
 import sys as sys
 import multiprocessing as mp
 from pysam import AlignmentFile
+from Bio import Phylo
 import argparse
 
 import requests # to look for weblinks. 
@@ -437,7 +438,7 @@ def create_path(string, df, chpar, path=None):
 
 def common_hap(paths):
 
-    """ Return the common haplogroup between a subste of paths (wether it is the MRCA or the common
+    """ Return the common haplogroup between a subset of paths (wether it is the MRCA or the common
     most derived Y-haplogroup) """
 
     path = paths[0] # define path as the first entry of the list (starting point).
@@ -451,82 +452,92 @@ def common_hap(paths):
 
     return haplogroup
 
-def network(data, width, height, avg_snps):
+def recurse(node_name, node_info, avg_snps):
+
+    """ Return a single string for a tree in Newick format """
+
+    # Get the average number of derived SNPs for a node.
+    length = avg_snps.get(node_name, 0)
+    
+    # Check if the node has children
+    has_children = len(node_info["children"]) > 0
+    
+    # If it has, ignore the samples at this level 
+    if has_children:
+        child_parts = [recurse(name, info, avg_snps) for name, info in node_info["children"].items()] # recursive function to iterate through children nodes.
+
+        # Return the haplogroup only
+        return f"({','.join(child_parts)}){node_name}:{length}"
+
+    else:
+        sample_label = ", ".join(node_info["samples"]) # store samples for the node.
+        display_name = f"{node_name} [{sample_label}]" if sample_label else node_name # store the node name and the samples contained.
+        return f"'{display_name}':{length}" # return the previous information along with the average number of SNPs in the node.
+
+def generate_simple_grouped_tree(paths_file, snp_file, output_nwk):
+    
+    """ Create a phylogenetic tree (in Newick format) to place samples depending on assigned Y-haplogroup """
+    
+    # Read content stored in SNPs file (number of derived SNPs per node)
+    df_snps = pd.read_csv(snp_file, header=None, names=['node', 'length'])
+    
+    avg_snps = df_snps.groupby('node')['length'].mean().to_dict() # compute the average found in every branch.
+
+    # Create an empty dictionary
+    tree_dict = {}
+
+    # Read the content for the paths file
+    with open(paths_file, 'r') as f:
+        for line in f:
+            sample_id, path_str = line.strip().split(':')
+            nodes = [n.strip() for n in path_str.split(',') if n.strip()]
+
+            current = tree_dict
+
+            # For every node of the path:
+            for i, node in enumerate(nodes):
+
+                # If no entry for that node in the dictionary:
+                if node not in current:
+                    
+                    # Add an entry and a dictionary for the values, to store children and sample names associated.
+                    current[node] = {"children": {}, "samples": []}
+
+                # If last node in the path, add the sample_id to this entry.
+                if i == len(nodes) - 1:
+                    current[node]["samples"].append(sample_id.strip())
+
+                # If node already exists in the dictionary, store it as a child.
+                current = current[node]["children"]
+
+    root_name = list(tree_dict.keys())[0] # root as the first element of all nodes.
+        
+    # Create Newick tree
+    final_nwk = recurse(root_name, tree_dict[root_name], avg_snps) + ";"
+
+    # Write file for Newick tree
+    with open(output_nwk, 'w') as f:
+        f.write(final_nwk)
+
+def nwk_tree(paths, width, height, avg_snps, nwk_out, data):
 
     """ Create a graphical network connecting Y-haplogroups and placing samples depending
     on the most derived Y-haplogroup assigned """
 
-    G = nx.DiGraph()
+    generate_simple_grouped_tree(paths, avg_snps, nwk_out)
 
-    samples = set()
+    # Make the visualization of the tree
+    tree = Phylo.read(nwk_out, "newick")
+    tree.ladderize() # flip branches so that deeper clades are displayed at top.
 
-    for line in data: # here data as the file containing every of the paths to each sample.
-        if not line or ":" not in line:
-            continue
-        
-        # Store information for sample id and the different Y-haplogroups found.
-        sample_id, path_str = line.split(':')
-        samples.add(sample_id)
-        nodes = [n.strip() for n in path_str.split(',') if n.strip() and n.strip().lower() != 'nan']
-        
-        # Create connections between nodes, with distance as the number of average_snps in the branch.
-        for i in range(len(nodes) - 1):
-            parent = nodes[i]
-            child = nodes[i+1]
-
-            snp_len = avg_snps.get(child, 1)
-
-            G.add_edge(parent, child, minlen=snp_len)
-        
-        # Link sample to its specific leaf
-        G.add_edge(nodes[-1], sample_id, len=1)
-    
-    # Force vertical layout
-    G.graph['graph'] = {'rankdir':'TB'}
-    pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
-    
-    # Specify dimensions of the network
-    plt.figure(figsize=(width, height)) 
-    
-    # Make a distinction between sample and haplogroup nodes.
-    haplos = [n for n in G.nodes if n not in samples]
-    
-    # Draw background edges
-    nx.draw_networkx_edges(G, pos, arrows=True, edge_color='black', alpha=0.2, width=0.5)
-    
-    # Create a dictionary of labels for edges that exceed the threshold, just to take into account the length of every branch.
-    edge_labels = {}
-    for u, v, data in G.edges(data=True):
-        weight = data.get('minlen', data.get('len', 0))
-        
-        edge_labels[(u, v)] = f"{weight}"
-
-    # Incorporate the branch length as a label in the network. 
-    nx.draw_networkx_edge_labels(
-        G, 
-        pos, 
-        edge_labels=edge_labels, 
-        font_size=7,
-        font_color='black',
-        rotate=True,
-        alpha=0.8,
-        label_pos=0.5,
-        verticalalignment = 'bottom',
-        bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0.5)
-    )
-
-    # Define also at the bottom of the network which samples correspond to every macrohaplogroup.
-    roots_OY =  ["E-M35", "G-P15", "I-M253", "I-S238", "I-L416", "J-M267", "J-PAGES00028","L-M22", "R-L146", "R-M343", "T"]
-    roots_ytree =  ["E-M35", "G-P15", "I1", "I-L460", "I-Y283553", "J1", "J2","L-M22", "R1a", "R1b", "T"]    
-    roots = list(set(roots_OY + roots_ytree))
-
-    # Set of colors for every macrohaplogroup.
-    colors = {
+    # Define colors for Y-macrohaplogroups (displayed as a vertical linein the right of the tree)
+    colors_mapping = {
         "E-M35": "#1b9e77",
         "G-P15": "#d95f02",
         "I-M253": "#7570b3",
         "I1": "#7570b3",
         "I-S238": "#e7298a",
+        "I2a": "#e7298a",
         "I-L460": "#e7298a",
         "I-L416": "#7570b3",
         "I-Y283553": "#7570b3",
@@ -541,110 +552,103 @@ def network(data, width, height, avg_snps):
         "R1b": "#e31a1c",
         "T": "#6a3d9a"
     }
-    
-    # Alternative names of Y-haplogroups.
-    alt_names = {
-        "E-M35": "E1b1b",
-        "G-P15": "G2a",
-        "I-M253": "I1",
-        "I-S238": "I2a",
-        "I-L460": "I2a",
-        "I-Y283553": "I2b",
-        "J-M267": "J1",
-        "J-PAGES00028": "J2",
-        "L-M22": "L-M22",
-        "R-L146": "R1a",
-        "R-M343": "R1b",
-        "T": "T"
-    }
-    
-    # Extract all descendants nodes for a given macrohaplogroup.
-    for node in haplos:
-        if node in roots:
-            downstream_nodes = nx.descendants(G, node)
-            downstream_nodes.add(node) # include the starting node itself
-    
-            highlight_edges = []
-    
-            for u, v in G.edges():
-                if u in downstream_nodes and v in downstream_nodes:
-                    highlight_edges.append((u, v))
-            
-            # Draw edges in network for this path in the color stored inside stpolten_colors.
-            nx.draw_networkx_edges(G, pos, edgelist=highlight_edges, 
-                                   arrows=True, edge_color=colors[node], width=2.0, alpha=0.9)
-    
-    
-    # Draw nodes for samples and haplogroups with high-density settings (smalle node sizes and font sizes).
-    nx.draw_networkx_nodes(G, pos, nodelist=haplos, node_shape='s', 
-                           node_color='#E0E0E0', node_size=200, edgecolors='grey')
-    
-    nx.draw_networkx_nodes(G, pos, nodelist=samples, node_shape='s', 
-                           node_color='powderblue', node_size=500, edgecolors='black')
-    
-    # Label with a tiny font and background 'halo' for legibility
-    nx.draw_networkx_labels(G, pos, font_size=5, font_family='sans-serif',
-                            bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0.2))
 
-    y_values = [p[1] for p in pos.values()] # get all y values in the network.
-    floor_y = min(y_values) # minimum y value.
-    
-    for node in samples:
-        if node in pos:
-            x, _ = pos[node]
-            pos[node] = (x, floor_y)
+    # Iterate through the tree to find the clades corresponding to macrohaplogroups.
+    for clade in tree.find_clades():
+        if clade.name in colors_mapping:
+            clade.color = colors_mapping[clade.name]
 
-    # Create a little offset for the highest value in the lables for macrohaplogroups.
-    lower_offset = (max(y_values) - floor_y) * 0.05
-    bar_y = floor_y - lower_offset 
-    
-    layer_y = 0 # define a layer depending on the macrohaplogroup (avoids overlapping)"
-    for root in roots:
-        if root not in G.nodes:
-            continue
-            
-        # Get EVERY node in the sub-tree (samples AND internal haplos).
-        sub_tree_nodes = nx.descendants(G, root)
-        sub_tree_nodes.add(root)
-        
-        # Get X coordinates for every single node in this macrohaplogroup.
-        x_coords = [pos[n][0] for n in sub_tree_nodes]
-        
-        if not x_coords:
-            continue
-            
-        # Calculate x-range and add a small visual buffer (+/- 10 units)
-        x_min, x_max = min(x_coords), max(x_coords)
-        difference = x_max - x_min
-        
-        # Assign a color for the label
-        color = colors.get(root, "#808080")
-        
-        # Draw the horizontal bar
-        plt.hlines(y=bar_y + layer_y, xmin = x_min, xmax = x_max, 
-                   color=color, linewidth=9)
-        
-        # Label the bar (slightly below).
-        plt.text((x_min + x_max) / 2, (bar_y + layer_y) - 80, alt_names.get(root, root), 
-                 color="black", ha='center', va='top', 
-                 fontsize=30, rotation=0)
+    # Initialize the plot
+    fig = plt.figure(figsize=(width, height))
+    ax = fig.add_subplot(1, 1, 1)
 
-        layer_y -= 300 # adjust layer
+    # Create the tree image:
+    Phylo.draw(tree, 
+               axes=ax, 
+               do_show=False, 
+               show_confidence=False,
+               label_func=lambda x: str(x) if x.is_terminal() else "") # only show terminal nodes.
+
+    # Change font size in the figure. 
+    for text in ax.findobj(plt.Text):
+        text.set_fontsize(7)
+
+    # Get terminal nodes in the tree, most derived ones:
+    terminals = tree.get_terminals()
+    x_pos = max(tree.depths().values()) * 1.05  # position of the vertical lines marking Y-macrohaplogroups
+
+    color_segments = {}
+    macros = []
+
+    for i, leaf in enumerate(terminals): 
     
+        # Get the color assigned to the clade (or default to gray)
+        path = tree.get_path(leaf)
+    
+        # Look backwards from the leaf to the root for the first assigned color
+        for node in reversed(path):
+
+            # If a color assigned to the consulted node (meaning that it is one of the macrohaplogroups)
+            if hasattr(node, 'color') and node.color:
+
+                # Store it in the list:
+                if node.name not in macros:
+                    macros.append(node.name)
+
+                # Get the corresponding color.
+                c = node.color.to_hex()
+
+                # If the color not inside the dictionary:
+                if c not in color_segments:
+                    color_segments[c] = []
+
+                # If it is, store the position for the terminal node.
+                color_segments[c].append(i + 1)
+
+    index = 0
+
+    # Once the segments of the positions stored, create them in the tree figure:
+    for color, y_coords in color_segments.items():
+
+        if color == "gray": 
+            continue # skip drawing the unassigned ones or handle separately
+    
+        # Vertical positioning.
+        ymin, ymax = min(y_coords), max(y_coords)
+
+        # Draw a line for the Y-macrohaplogroup
+        ax.vlines(x=x_pos, ymin=ymin - 0.4, ymax=ymax + 0.4, 
+                  color=color, linewidth=8)
+
+        # Draw text for the macrohaplogroup in every line
+        ax.text(x_pos + 3.5, (ymin + ymax) / 2, macros[index], 
+            color="black", va='center', fontsize=15)
+
+        index+=1
+
+    # Hide all axis except x-axis
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    ax.xaxis.label.set_size(12)
+
     # Add title
-    plt.title(f"Haplogroup Phylogeny: {len(samples)} Samples", fontsize=40)
-    plt.axis('off')
-    
-    # Save as PDF and PNG.
-    plt.savefig("figures/large_haplo_tree.pdf", bbox_inches='tight')
-    plt.savefig("figures/large_haplo_tree.jpg", bbox_inches="tight")
+    plt.title(f"Phylogeny created for a total of {len(data)} samples", fontsize=20)
+
+    # Save files for figure:
+    fig.savefig("./figures/Y-haplogroup_tree.jpg", 
+                            dpi=300, 
+                            facecolor='white', 
+                            bbox_inches='tight')
+    plt.savefig("./figures/Y-haplogroup_tree.pdf", dpi=300)
 
 def unique_lineages(df, data):
 
     """ Return a list of samples that correspond to unique lineages (paths shared by different samples counted as 1). """ 
     
     # Save all sample names in a list.
-    samples = df["Sample"]
+    samples = df["Sample-ID"]
     samples = samples.to_list()
 
     # Store samples in data as a dictionary, to make a faster and more efficient search.
@@ -657,9 +661,9 @@ def unique_lineages(df, data):
         path_map[sample_id] = nodes
 
     # Define a list of unique samples
-    unique_samples = set(df["Sample"])
+    unique_samples = set(df["Sample-ID"])
 
-    for samp, most_derived in zip(df["Sample"], df["Most derived"]):
+    for samp, most_derived in zip(df["Sample-ID"], df["Y-haplogroup"]):
         for other_id, other_nodes in path_map.items():
 
             # If it's a different sample AND the haplogroup is in their path
@@ -672,7 +676,7 @@ def unique_lineages(df, data):
 
     return list(unique_samples)
 
-def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_genome, create_network, width, height, transitions, translation, ex_limit, ages):
+def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_genome, create_phylogeny, width, height, transitions, translation, ex_limit, ages):
 
     """ Main function to run the y_call software. Other functions from the script included here."""
 
@@ -945,31 +949,24 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
     for i in items:
         data.append(i.strip())
 
-    unique = unique_lineages(summary_df, data)
+    summary = pd.read_csv("data/output/scores.csv", header=None, names = ["Sample-ID", "Y-haplogroup", "Level", "#ANC in par./#DER in par.", "Score"])
+    unique = unique_lineages(summary, data)
 
     print(f"Total number of unique lineages in dataset: {len(unique)}.")
 
     # Create a network to place samples in a Y-haplogroup tree (only if specified by the user).
-    if create_network == "Y":
-        print("\n## Create network to know relationship between samples ##\n--------------------")
-        df = pd.read_csv("data/output/snps_branch.csv", header=None)
+    if create_phylogeny == "Y":
+        print("\n## Create phylogenetic tree to know relationship between samples ##\n--------------------")
 
-        # Divide the dataFrame by the different haplogroups.
-        df.columns = ["Haplogroup", "SNPs_num"]
-        grouped = df.groupby("Haplogroup")
-
-        # Generate a new dataFarme with columns for the Branch, the Level and the average total of SNPs.
-        new_df = grouped.agg(
-                Sum=("SNPs_num", "mean")
-        ).round(2).reset_index()
-
-        avg_snps = dict(zip(new_df["Haplogroup"], new_df["Sum"]))
+        paths = "./data/output/paths.txt"
+        avg_snps = "./data/output/snps_branch.csv"
+        nwk_out = "./data/output/simple_tree.nwk" 
 
         # Create directories to store figures.
         file_fig = pathlib.Path(f"./figures")
         file_fig.mkdir(parents=True, exist_ok=True)
 
-        network(data, width, height, avg_snps)
+        nwk_tree(paths, width, height, avg_snps, nwk_out, data)
 
         print(f"Tree created for a total of {len(data)} samples")
 
@@ -992,27 +989,3 @@ def get_mismatch_snps(string, chpar, df_ch):
         
         else:
             string = chpar[string] # Get Parent Node
-
-def get_tree(node,tree=None):
-    if tree == None:
-        tree=[]
-    for child in node.get("children", []):
-        tree.append(f"{node["id"]},{child["id"]}")
-        create_tree(child, tree)
-    return tree
-
-def get_haplog(node,branches=None):
-    if branches == None:
-        branches=[]
-    for child in node.get("children", []):
-        branches.append(f"{child["id"]},{child["snps"]}")
-        get_haplog(child, branches)
-    return branches
-
-def get_age(node,ages=None):
-    if ages == None:
-        ages=[]
-    for child in node.get("children", []):
-        ages.append(f"{child["id"]},{child["formed"]},{child["formedlowage"]},{child["formedhighage"]},{child["tmrca"]},{child["tmrcalowage"]},{child["tmrcahighage"]}")
-        get_age(child, ages)
-    return ages

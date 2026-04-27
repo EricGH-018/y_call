@@ -12,6 +12,7 @@ import os as os
 import sys as sys
 import multiprocessing as mp
 from pysam import AlignmentFile
+from Bio import Phylo
 import argparse
 
 import requests # to look for weblinks. 
@@ -26,7 +27,7 @@ from pathlib import Path
 
 ## IMPORT FUNCTIONS ##
 
-from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, div_anc_der, create_parent_dct, create_path, network, unique_lineages, support
+from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, div_anc_der, create_parent_dct, create_path, unique_lineages, support, recurse, generate_simple_grouped_tree, nwk_tree
 
 def main():
 
@@ -44,11 +45,11 @@ def main():
         help = "Minimum mapping quality.")
     parser.add_argument("--rg", required=False, type=str, default="hg38",
         help = "Specify the reference genome for genome coordinates (either hg38 or hg19).")
-    parser.add_argument("--create_network", required=False, type=str, default="N",
+    parser.add_argument("--create_phylogeny", required=False, type=str, default="N",
         help = "Create a network connecting the different Y-haplogroups and placing samples in it, specify Y if wanted.")
-    parser.add_argument("--width", required=False, type=int, default=120,
+    parser.add_argument("--width", required=False, type=int, default=60,
         help = "Width of the network created.")
-    parser.add_argument("--height", required=False, type=int, default=90,
+    parser.add_argument("--height", required=False, type=int, default=80,
         help = "Height of the network created.")
     parser.add_argument("--transitions", required=False, type=str, default="N",
         help = "Filter for transitions in the analysis (C -> T and G -> A), specify Y if wanted.")
@@ -70,7 +71,7 @@ def main():
     # Run function for the software: y_call.
     y_call(bam_list=args.bam_list, initial=args.index_i, final=args.index_f,
            base_qual=args.base_qual, map_qual=args.map_qual, database=args.database,
-           reference_genome=args.rg, create_network=args.create_network, 
+           reference_genome=args.rg, create_phylogeny=args.create_phylogeny, 
            width=args.width, height=args.height, transitions=args.transitions,
            translation=args.translation, ex_limit=args.ex_limit, ages=args.ages)
 

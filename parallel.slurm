@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=standard
-#SBATCH --array=0-23%5
+#SBATCH --array=0-25%5
 #SBATCH --output=jobs/y_call_%a.o
 
 # Define the beginnig and the end of the range to make Y haplogroup calls (chunks of 10):
@@ -28,7 +28,9 @@ start_time=$(date +%s) # store moment of start.
 
 #python make_call.py --bam_list "/mnt/archgen/users/hringbauer/git/EPIDEMIC/output/tables/autoeager_seqfull_anno.tsv" --index_i $start --index_f $end --snps "data/input/YBrowse_snps_hg38-runtime.csv" --rg "hg38" --transitions "Y" --create_network Y --width 120 --height 90
 
-python make_call.py --bam_list "/mnt/archgen/users/hringbauer/git/EPIDEMIC/output/tables/autoeager_seqfull_anno.tsv" --index_i $start --index_f $end --rg "hg38" --create_network Y --transitions Y --database YFull
+#python make_call.py --bam_list "/mnt/archgen/users/hringbauer/git/EPIDEMIC/output/tables/autoeager_seqfull_anno.tsv" --index_i $start --index_f $end --rg "hg38" --create_network Y --transitions Y --database YFull
+
+python make_call.py --bam_list "seqfull_RM_EPIDEMIC.tsv" --index_i $start --index_f $end --rg "hg38" --create_phylogeny Y --transitions Y --database YFull
 
 end_time=$(date +%s) # store moment of end.
 duration=$((end_time - start_time)) # difference between start and end as the time of execution. 
