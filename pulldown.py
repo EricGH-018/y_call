@@ -790,6 +790,9 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
             idx_trans = df_ch[((df_ch["ref"]=="C") & (df_ch["alt"]=="T")) | ((df_ch["ref"]=="G") & (df_ch["alt"]=="A"))].index # filter for SNPs where ref. alleles are C or G, and the alternative alleles T or A (possible deaminations).
             df_ch = df_ch.drop(index=idx_trans)
 
+        # Filter out SNPs with the same number of supporting reads for reference and alternative alleles.
+        df_ch = df_ch[~(df_ch["ref#"]==df_ch["alt#"])]
+
         # Create a dataFrame to know the total number of SNPs per branch, and the corresponding ancestral and derived counts. 
         dft = div_anc_der(df_ch, chpar=chpar, df_exclude=df_ex3)
 
@@ -803,8 +806,8 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
         derived_nodes = (dft.set_index("Y-haplogroup")["Derived/Total"] > 0.95).astype(float).to_dict()
         dft["Support"] = dft["Y-haplogroup"].map(lambda x: support(x, chpar, derived_nodes))
 
-        # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral) - Uncovered - #UNC in par.
-        dft["Score"] = round((dft["#ANC in par."]*-3)+(dft["#DER in par."])+(dft["Ancestral"]*-3)+(dft["Derived"])+(dft["Uncovered"]*-2)+(dft["#UNC in par."]*-2) + (dft["Support"]),6)
+        # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral)
+        dft["Score"] = round((dft["#ANC in par."]*-3)+(dft["#DER in par."])+(dft["Ancestral"]*-3)+(dft["Derived"]))
 
         # Get the most derived haplogroup according to score and level classification:
         df = dft[dft["Y-haplogroup"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
