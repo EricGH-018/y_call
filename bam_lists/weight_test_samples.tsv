@@ -1,0 +1,11 @@
+iid	bam	sex
+PTN209	/mnt/archgen/Autorun_eager/eager_outputs/SG/PTN/PTN209/merged_bams/initial/PTN209_ss_udghalf_libmerged_rmdup.bam	m
+PTN127	/mnt/archgen/Autorun_eager/eager_outputs/RM/PTN/PTN127/trimmed_bam/PTN127_ss.A0201_udghalf.trimmed.bam	m
+I3389	/home/eric_garcia_hoyos/y_call/benchmarking/I3389.bam	m
+NA20126	/home/eric_garcia_hoyos/y_call/1kGP_samples/NA20126.bam	m
+HG01311	/home/eric_garcia_hoyos/y_call/1kGP_samples/HG01311.bam	m
+NA11881	/home/eric_garcia_hoyos/y_call/1kGP_samples/NA11881.bam	m
+HG02253	/home/eric_garcia_hoyos/y_call/1kGP_samples/HG02253.bam	m
+HG03971	/home/eric_garcia_hoyos/y_call/1kGP_samples/HG03971.bam	m
+PTN208	/mnt/archgen/Autorun_eager/eager_outputs/RM/PTN/PTN208/trimmed_bam/PTN208_ss.A0201_udghalf.trimmed.bam	m
+BMG001	/mnt/archgen/Autorun_eager/eager_outputs/SG/BMG/BMG001/merged_bams/additional/BMG001_ss_libmerged_add.bam	m

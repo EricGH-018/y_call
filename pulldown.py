@@ -306,18 +306,27 @@ def call_y_bam(df=[], path_bam="",
 
     return df_ch, df_der
 
+def exclude_snps(df_ch, df_ex, col="SNP-ID"):
 
-def div_anc_der(df, chpar, df_exclude=[]):
+    """ Return dataFrame df_ch with filtered SNPs in df_ex. """
+
+    idx= df_ch[col].isin(df_ex[col]) # look for specific SNP names.
+    df_ch2 = df_ch[~idx].copy() # exclude rows for filtered SNPs. 
+
+    return df_ch2
+
+def div_anc_der(df_ch, chpar, df_exclude):
 
     """ Return a dataFrame with total, ancestral, derived, and uncovered SNPs 
     per branch, as well as for parental branches. df_exclude: dataFrame of SNPs to filter """
 
     # If more than 1 SNP to be excluded in array, apply function to filter out the corresponding positions.
-    if len(df_exclude)>0:
-        df = exclude_snps(df, df_exclude)
+    if len(df_exclude) > 0:
+        df = exclude_snps(df_ch, df_exclude)
+    else:
+        df = df_ch.copy()
 
     # Create columns for ANC and DER SNPs.
-    df = df.copy()
     df["ancestral"] = df["alt#"] < df["ref#"]
     df["derived"]   = df["alt#"] > df["ref#"]
 
@@ -366,15 +375,6 @@ def div_anc_der(df, chpar, df_exclude=[]):
     new_df["Total in par."] = new_df["#ANC in par."] + new_df["#DER in par."] + new_df["#UNC in par."]
 
     return new_df
-
-def exclude_snps(df_ch, df_ex, col="SNP-ID"):
-
-    """ Return dataFrame df_ch with filtered SNPs in df_ex. """
-
-    idx= df_ch[col].isin(df_ex[col]) # look for specific SNP names.
-    df_ch2 = df_ch[~idx].copy() # exclude rows for filtered SNPs. 
-
-    return df_ch2
 
 def create_tree(string, level, df, chpar, file=None, total_par=0,RED = "\033[91m", GREEN = "\033[92m", GREY = "\033[38;5;245m", RESET = "\033[0m"):
 
@@ -787,7 +787,7 @@ def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_ge
 
         # Filter for possible deaminations.
         if transitions == "Y":
-            idx_trans = df_ch[((df_ch["ref"]=="C") & (df_ch["alt"]=="T")) | ((df_ch["ref"]=="G") & (df_ch["alt"]=="A"))].index # filter for SNPs where ref. alleles are C or G, and the alternative alleles T or A (possible deaminations).
+            idx_trans = df_ch[(((df_ch["ref"]=="C") & (df_ch["alt"]=="T")) | ((df_ch["ref"]=="G") & (df_ch["alt"]=="A"))) & (df_ch["ref#"] < df_ch["alt#"])].index # filter for SNPs where ref. alleles are C or G, and the alternative alleles T or A (possible deaminations).
             df_ch = df_ch.drop(index=idx_trans)
 
         # Filter out SNPs with the same number of supporting reads for reference and alternative alleles.

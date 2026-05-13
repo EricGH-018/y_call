@@ -27,7 +27,7 @@ from pathlib import Path
 
 ## IMPORT FUNCTIONS ##
 
-from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, div_anc_der, create_parent_dct, create_path, unique_lineages, support, recurse, generate_simple_grouped_tree, nwk_tree
+from pulldown import y_call, load_snp_file_OY, ref_alt_count, pulldown_bamtable, call_y_bam, create_tree, exclude_snps, div_anc_der, create_parent_dct, create_path, unique_lineages, support, recurse, generate_simple_grouped_tree, nwk_tree
 
 def main():
 
