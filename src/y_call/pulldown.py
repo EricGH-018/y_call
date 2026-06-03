@@ -250,7 +250,7 @@ def ref_alt_count(df_ch, bases=["A", "C", "G", "T"]):
     return df_ch
 
 def pulldown_bamtable(path_bam = "", o_file = "",
-                      bamtable = "./bin/BamTable",
+                      bamtable = str(pathlib.Path(__file__).resolve().parent / "bin" / "BamTable"),
                       snip5=0, snip3=0, base_qual=20, map_qual=25, 
                       path_bed = ""):
 
@@ -674,305 +674,7 @@ def unique_lineages(df, data):
 
                 break # move to the next 'samp' once the current one is invalidated
 
-    return list(unique_samples)
-
-def y_call(bam_list, initial, final, base_qual, map_qual, database, reference_genome, create_phylogeny, width, height, transitions, translation, ex_limit, ages):
-
-    """ Main function to run the y_call software. Other functions from the script included here."""
-
-    out_path = pathlib.Path("data/output")
-    out_path.mkdir(parents=True, exist_ok=True)
-
-    # Make sure that the directory to the temporary file is created.
-    temp_path = pathlib.Path("./data/output/temp")
-    temp_path.mkdir(parents=True, exist_ok=True)
-
-    path_snps=f"./data/input/{database}/snps.csv"
-    tree=f"./data/input/{database}/tree.csv"
-    mm=f"./data/input/{database}/mm.tsv"
-    branches=f"./data/input/{database}/haps.csv"
-
-    # Create a dictionary to store relations between child (key) and parent (value) haplogroups.
-    chpar = create_parent_dct(path_parents=tree)
-
-    print("\n## Process input data ##\n--------------------")
-    # Path to the set of markers considered in the analysis (after filtering). 
-    file_OY = pathlib.Path(f"./data/output/all_snps_{database}.csv")
-
-    if file_OY.exists():
-        print(f"Dataset for filtered markers already saved: ./data/output/all_snps_{database}.csv")
-        OY = pd.read_csv(file_OY)
-        path_bed = pathlib.Path(f"./data/output/{database}_snps.bed")
-        if path_bed.exists:
-            print(f"Corresponding .bed file in {path_bed}")
-        else:
-            savepath = f"./data/output/{database}_snps.bed" # save a BED file with coordinates for every SNP. 
-
-            dft = OY[["chrom", "pos"]].copy()
-            dft["pos1"] = dft["pos"]
-            dft.to_csv(savepath, sep="\t", index=False, header=None)
-            print(f"Coresponding .bed file in {path_bed}")
-    else:
-        print("Dataset for filtered markers missing\nCreating file...")
-        OY = load_snp_file_OY(path_snps, reference_genome, chpar, branches, translation, unique=True) # import all SNPs in .csv file. 
-        OY.to_csv(f"data/output/all_snps_{database}.csv")
-        print(f"Done\nSaved as ./data/output/all_snps_{database}.csv")
-
-        OY = OY.sort_values(by="pos") # sort by position.
-
-        savepath = f"./data/output/{database}_snps.bed" # save a BED file with coordinates for every SNP. 
-
-        dft = OY[["chrom", "pos"]].copy()
-        dft["pos1"] = dft["pos"]
-        dft.to_csv(savepath, sep="\t", index=False, header=None)
-        print(f"Coresponding .bed file in {savepath}")
-
-    print("\n## Load individuals ##\n--------------------")
-    dft = pd.read_csv(bam_list, sep="\t") # file with all routes to BAM files.
-
-    n = dft[dft["bam"].notna()] # select only rows where BAM file is available. 
-    males = n[n["sex"] == "m"] # select only male samples.
-
-    bam_dict_males = dict(zip(males["iid"], males["bam"])) # create a dictionary as [SAMPLE: route .bam].
-
-    if final == 0:
-        routes = list(bam_dict_males.items())[initial:final+len(bam_dict_males)+1] # if no indexes provided, consider all samples. 
-    else:
-        routes = list(bam_dict_males.items())[initial:final] # if indexes provided, select only those samples.     
-
-    print(f"Loaded a total of {len(routes)} male individuals.")
-
-    # Store in a list content for the final dataFrame:
-    samples = []
-    branches = []
-    levels = []
-    ratios = []
-    scores = []
-
-    # Store in lists ages for every haplogroup:
-    ages_exist = False
-    if pathlib.Path(ages).exists():
-        formed = []
-        tmrca = []
-        ages_exist = True
-
-        # Read the file that stores information for age on every haplogroup.
-        ages = pd.read_csv(ages)
-
-    # Create a dictionary to store the total number of SNPs per haplogroup:
-    dict_snps = {}
-
-    for sample in routes:
-
-        # Show content for the sample being analysed.
-        iid = sample[0]
-        bam = sample[1]
-
-        if not pathlib.Path(bam).exists(): # only if .bam file was not found.
-            print(f"Sample {sample} not consdiered, missing BAM file.")
-            continue
-
-        print(f"\n## Summary coverage statistics for sample {iid} ##\n--------------------")
-
-        # Do the call, depending on if the user has specified a minimum base quality and mapping quality.
-        df_ch, df_der = call_y_bam(df=OY, path_bam=bam,
-                                   path_bed=f'./data/output/{database}_snps.bed',
-                                   path_temp=f'./data/output/temp/{iid}_temp.tsv',
-                                   snip5=0, snip3=0, base_qual=base_qual, map_qual=map_qual)
-
-        # Post-process filtering (subset of SNPs to be exluded in data/input/mm_v3.tsv)
-        df_cts = pd.read_csv(mm, sep="\t")
-        df_ex3 = df_cts[df_cts["count"]>ex_limit] # SNPs that are ancestral in test sample derived chains.
-
-
-        # Filter for possible deaminations.
-        if transitions == "Y":
-            idx_trans = df_ch[(((df_ch["ref"]=="C") & (df_ch["alt"]=="T")) | ((df_ch["ref"]=="G") & (df_ch["alt"]=="A"))) & (df_ch["ref#"] < df_ch["alt#"])].index # filter for SNPs where ref. alleles are C or G, and the alternative alleles T or A (possible deaminations).
-            df_ch = df_ch.drop(index=idx_trans)
-
-        # Filter out SNPs with the same number of supporting reads for reference and alternative alleles.
-        df_ch = df_ch[~(df_ch["ref#"]==df_ch["alt#"])]
-
-        # Create a dataFrame to know the total number of SNPs per branch, and the corresponding ancestral and derived counts. 
-        dft = div_anc_der(df_ch, chpar=chpar, df_exclude=df_ex3)
-
-        # Add a new column to the dataset as the ratio of derived SNPs in respect to the Total SNPs.
-        dft["Derived/Total"] = round(dft["Derived"] / dft["Total_SNPs"],6)
-
-        # Add a new column to the dataset as the ratio of #ANC in par. in #DER in par.
-        dft["#ANC in par./#DER in par."] = round(dft["#ANC in par."] / dft["#DER in par."],6)
-
-        # Add a new column to the dataset for the number of supporting derived nodes in each haplogroup.
-        derived_nodes = (dft.set_index("Y-haplogroup")["Derived/Total"] > 0.95).astype(float).to_dict()
-        dft["Support"] = dft["Y-haplogroup"].map(lambda x: support(x, chpar, derived_nodes))
-
-        # Add a new column to the dataset as the score for every haplogroup = #DER in par. + Derived - 3* (#ANC in par. + Ancestral)
-        dft["Score"] = round((dft["#ANC in par."]*-3)+(dft["#DER in par."])+(dft["Ancestral"]*-3)+(dft["Derived"]))
-
-        # Get the most derived haplogroup according to score and level classification:
-        df = dft[dft["Y-haplogroup"]!="I-P38"].sort_values(by="Score") # exclude haplogroup I-P38, as it's got a different name.
-
-        most_der = df.iloc[-1, -1] # score for the most derived haplogroup.
-        result = df[df.iloc[:, -1] == most_der] # select rows with that score.
-        
-        # If more than one row with the highest score:
-        if len(result) > 1:
-            paths = []
-
-            # Define paths for every haplogroup with the highest score
-            for haplo in result["Y-haplogroup"]:
-                paths.append(create_path(string=haplo,df=df,chpar=chpar))
-
-            # Decide the MRCA from the paths provided
-            haplogr = common_hap(paths)
-            if haplogr in df["Y-haplogroup"]:
-                result = df[df["Y-haplogroup"]==haplogr]
-            else:
-                result = OY[OY["Y-haplogroup"]==haplogr]
-
-        # Create directories for SNP and Y-haplogroups information.
-        file_path = pathlib.Path(f"./data/output/markers/{iid}")
-        file_path.mkdir(parents=True, exist_ok=True)
-
-        file_path2 = pathlib.Path(f"./data/output/haplogroups/{iid}")
-        file_path2.mkdir(parents=True, exist_ok=True)
-
-        print(f"\n## Process output files for sample {iid} ##\n--------------------")
-        # Write a .tsv file to consult SNPs for every branch.
-        df_ch.to_csv(f"data/output/markers/{iid}/snps_{iid}.tsv", sep="\t", index=False)
-        print(f"Saved data for pileup as data/output/markers/{iid}/snps_{iid}.tsv")
-
-        # Write a .tsv file to consult only derived SNPs for every branch.
-        df_der.to_csv(f"data/output/markers/{iid}/snps_der_{iid}.tsv", sep="\t", index=False)
-        print(f"Saved data for pileup (considering only derived sites) as data/output/markers/{iid}/snps_der_{iid}.tsv")
-
-        # Write a .tsv file to consult information for every Y-haplogroup called. 
-        df.to_csv(f"data/output/haplogroups/{iid}/haplogroup_{iid}.tsv", sep="\t", index=False)
-        print(f"Saved data for Y-haplgroup calls as data/output/haplogroups/{iid}/haplogroup_{iid}.tsv")
-
-        # Write entries in the dictionary to see the total of SNPs per haplogroup.
-        for haplo, total_snps in zip(df["Y-haplogroup"], df["Total_SNPs"]):
-            if haplo in dict_snps:
-                dict_snps[haplo].append(int(total_snps))
-            else:
-                dict_snps[haplo] = [int(total_snps)]
-
-        # Create directory for the tree files created in each sample.
-        file_path3 = pathlib.Path(f"data/output/trees/{iid}")
-        file_path3.mkdir(parents=True, exist_ok=True)
-
-        # Create a tree to know where is the sample located in Y-haplogroups
-        with open(f"data/output/trees/{iid}/tree_output_{iid}.txt", "w") as f:
-            f.write(f"Tree created for sample {iid}, with most derived Y-haplogroup: {result["Y-haplogroup"].iloc[0]}\n")
-            create_tree(string = result["Y-haplogroup"].iloc[0],level = int(result["Level"].iloc[0]), df=df, chpar=chpar, file=f)
-            f.write("\n")
-
-        # Create a file to store all paths (for every sample), useful to then create the final tree
-        file_path = "data/output/paths.txt"
-        existing_entries = set()
-
-        if os.path.exists("data/output/paths.txt"):
-            with open(file_path, "r") as f:
-                existing_entries = {line.strip() for line in f if line.strip()}
-
-        with open(file_path, "a") as file:
-            path = create_path(string=result["Y-haplogroup"].iloc[0], df=df, chpar=chpar)
-            content = f"{iid}: {','.join(map(str, path))}"
-    
-            if content not in existing_entries:
-                file.write(content + "\n")
-                existing_entries.add(content)
-        print(f"Y-haplogroup simplified tree saved as data/output/trees/{iid}/tree_output_{iid}.txt")
-
-        print("\n## Update global output files ##\n--------------------\nPath to most derived haplogroup included in data/output/paths.txt")
-
-        # Keep info for summary
-        samples.append(iid)
-        branches.append(result["Y-haplogroup"].iloc[0])
-        levels.append(int(result["Level"].iloc[0]))
-
-        if "#ANC in par./#DER in par." in result.columns and "Score" in result.columns:
-            ratios.append(float(result["#ANC in par./#DER in par."].iloc[0]))
-            scores.append(int(result["Score"].iloc[0]))
-        else:
-            ratios.append(0.0)
-            scores.append(0)
-
-        # Keep infor for haplogroup ages
-        if ages_exist:
-            formed_id = ages.set_index("Y-haplogroup")["Formed"].get(result["Y-haplogroup"].iloc[0])
-            formed.append(formed_id)
-            tmrca_id = ages.set_index("Y-haplogroup")["TMRCA"].get(result["Y-haplogroup"].iloc[0])     
-            tmrca.append(tmrca_id)
-
-    # Create a final dataFrame to store all measures for every sample.
-    summary_df = pd.DataFrame({
-        "Sample": samples,
-        "Most derived": branches,
-        "Level": levels,
-        "Ratio": ratios,
-        "Score": scores
-    })
-    #summary_df = summary_df.drop_duplicates(subset=['Sample'], keep='last') # in case the algorith runs a sample twice.
-
-    # Write a .csv file with the summary.
-    summary_df.to_csv("data/output/scores.csv", mode="a", header=False, index=False)
-    print(f"Saved Y-haplogroup calls for {len(samples)} individuals as data/output/scores.csv")
-
-    # Create also a dataFRame to store information on age.
-    if ages_exist:
-        ages_df = pd.DataFrame({
-            "Sample": samples,
-            "Most derived": branches,
-            "Formed": formed,
-            "TMRCA": tmrca
-        })
-
-        # Write a .csv file for ages.
-        ages_df.to_csv("data/output/hap_ages.csv", mode="a", header=False, index=False)
-        print(f"Saved Y-haplogroup ages for {len(samples)} individuals as data/output/hap_ages.csv")
-
-    # Write a .csv file with SNPs per branch.
-    data_list = []
-    for haplo, snps in dict_snps.items():
-        for snp in snps:
-            data_list.append({"Haplogroup": haplo, "Total_SNPs": snp})
-
-    # Create dataFrame and save.
-    df_snps = pd.DataFrame(data_list)
-    df_snps.to_csv("data/output/snps_branch.csv", mode="a", header=False, index=False)
-
-    # Compute the total number of unique lineages for the dataset.
-    # Use info for different paths in each sample and the corresponding scores. 
-    print("\n## Run analysis to know the total number of unique lineages in dataset ##\n--------------------")
-    with open ("data/output/paths.txt", "r") as file:
-        items = file.readlines()
-
-    data = []
-    for i in items:
-        data.append(i.strip())
-
-    summary = pd.read_csv("data/output/scores.csv", header=None, names = ["Sample-ID", "Y-haplogroup", "Level", "#ANC in par./#DER in par.", "Score"])
-    unique = unique_lineages(summary, data)
-
-    print(f"Total number of unique lineages in dataset: {len(unique)}.")
-
-    # Create a network to place samples in a Y-haplogroup tree (only if specified by the user).
-    if create_phylogeny == "Y":
-        print("\n## Create phylogenetic tree to know relationship between samples ##\n--------------------")
-
-        paths = "./data/output/paths.txt"
-        avg_snps = "./data/output/snps_branch.csv"
-        nwk_out = "./data/output/simple_tree.nwk" 
-
-        # Create directories to store figures.
-        file_fig = pathlib.Path(f"./figures")
-        file_fig.mkdir(parents=True, exist_ok=True)
-
-        nwk_tree(paths, width, height, avg_snps, nwk_out, data)
-
-        print(f"Tree created for a total of {len(data)} samples")
-
+    return sorted(list(unique_samples))
 
 def get_mismatch_snps(string, chpar, df_ch):
 
@@ -992,3 +694,508 @@ def get_mismatch_snps(string, chpar, df_ch):
         
         else:
             string = chpar[string] # Get Parent Node
+
+def load_input_data(
+    database: str,
+    path_snps: str,
+    reference_genome: str,
+    chpar,
+    path_branches: str,
+    translation: str,
+):
+    """Load and process input data for the analysis, including SNPs and BAM files."""
+
+    print("\n## Process input data ##\n--------------------")
+
+    file_OY = pathlib.Path(f"./data/output/all_snps_{database}.csv")
+    path_bed = pathlib.Path(f"./data/output/{database}_snps.bed")
+
+    if file_OY.exists():
+        print(f"Dataset for filtered markers already saved: {file_OY}")
+        OY = pd.read_csv(file_OY)
+
+        if path_bed.exists():
+            print(f"Corresponding .bed file in {path_bed}")
+        else:
+            savepath = path_bed
+            dft = OY[["chrom", "pos"]].copy()
+            dft["pos1"] = dft["pos"]
+            dft.to_csv(savepath, sep="\t", index=False, header=None)
+            print(f"Corresponding .bed file in {savepath}")
+    else:
+        print("Dataset for filtered markers missing\nCreating file...")
+
+        OY = load_snp_file_OY(
+            path_snps,
+            reference_genome,
+            chpar,
+            path_branches,
+            translation,
+            unique=True,
+        )
+        file_OY.parent.mkdir(parents=True, exist_ok=True)
+        OY.to_csv(file_OY, index=False)
+        print(f"Done\nSaved as {file_OY}")
+
+        OY = OY.sort_values(by="pos")
+
+        savepath = path_bed
+        dft = OY[["chrom", "pos"]].copy()
+        dft["pos1"] = dft["pos"]
+        dft.to_csv(savepath, sep="\t", index=False, header=None)
+        print(f"Corresponding .bed file in {savepath}")
+
+    return OY
+
+
+def load_individuals(bam_list: str, initial: int, final: int):
+    """Load individuals to be analysed, with their corresponding BAM files."""
+
+    print("\n## Load individuals ##\n--------------------")
+    dft = pd.read_csv(bam_list, sep="\t")
+
+    n = dft[dft["bam"].notna()]
+    males = n[n["sex"] == "m"]
+
+    bam_dict_males = dict(zip(males["iid"], males["bam"]))
+
+    items = list(bam_dict_males.items())
+    if final == 0:
+        routes = items[initial:]
+    else:
+        routes = items[initial:final]
+
+    return routes
+
+
+def haplogroup_info(df_ch: pd.DataFrame, chpar, df_ex3: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a DataFrame with information for every haplogroup, including:
+    - total number of SNPs
+    - number of ancestral and derived SNPs
+    - corresponding numbers in parental branches
+    """
+
+    df_ch = df_ch[~(df_ch["ref#"] == df_ch["alt#"])]
+
+    dft = div_anc_der(df_ch, chpar=chpar, df_exclude=df_ex3)
+
+    dft["Derived/Total"] = round(dft["Derived"] / dft["Total_SNPs"], 6)
+    dft["#ANC in par./#DER in par."] = round(
+        dft["#ANC in par."] / dft["#DER in par."], 6
+    )
+
+    derived_nodes = (
+        (dft.set_index("Y-haplogroup")["Derived/Total"] > 0.95)
+        .astype(float)
+        .to_dict()
+    )
+    dft["Support"] = dft["Y-haplogroup"].map(
+        lambda x: support(x, chpar, derived_nodes)
+    )
+
+    dft["Score"] = (
+        dft["#ANC in par."] * -3
+        + dft["#DER in par."]
+        + dft["Ancestral"] * -3
+        + dft["Derived"]
+    )
+
+    return dft
+
+
+def decide_haplogroup(result: pd.DataFrame, df: pd.DataFrame, chpar, OY: pd.DataFrame):
+    """
+    Return the most derived haplogroup according to score and level classification,
+    with an additional filtering in case this haplogroup is not inside the original
+    set of Y-haplogroups.
+    """
+
+    paths = [
+        create_path(string=haplo, df=df, chpar=chpar)
+        for haplo in result["Y-haplogroup"]
+    ]
+
+    haplogr = common_hap(paths)
+
+    filtered = paths[0]
+    filtered = filtered[: filtered.index(haplogr) + 1]
+
+    for hap in reversed(filtered):
+        if hap in OY["Y-haplogroup"].values:
+            haplogr = hap
+            break
+
+    if haplogr in df["Y-haplogroup"].values:
+        result_final = df[df["Y-haplogroup"] == haplogr]
+    else:
+        result_final = OY[OY["Y-haplogroup"] == haplogr]
+
+    return result_final
+
+
+def create_directories(
+    iid: str,
+    df_ch: pd.DataFrame,
+    df_der: pd.DataFrame,
+    df: pd.DataFrame,
+    dict_snps: dict,
+    chpar,
+    result: pd.DataFrame,
+):
+    """Create directories and files for the output of a single sample."""
+
+    markers_dir = pathlib.Path(f"./data/output/markers/{iid}")
+    markers_dir.mkdir(parents=True, exist_ok=True)
+
+    haps_dir = pathlib.Path(f"./data/output/haplogroups/{iid}")
+    haps_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n## Process output files for sample {iid} ##\n--------------------")
+
+    snps_file = markers_dir / f"snps_{iid}.tsv"
+    df_ch.to_csv(snps_file, sep="\t", index=False)
+    print(f"Saved data for pileup as {snps_file}")
+
+    snps_der_file = markers_dir / f"snps_der_{iid}.tsv"
+    df_der.to_csv(snps_der_file, sep="\t", index=False)
+    print(f"Saved data for pileup (derived sites) as {snps_der_file}")
+
+    hap_file = haps_dir / f"haplogroup_{iid}.tsv"
+    df.to_csv(hap_file, sep="\t", index=False)
+    print(f"Saved data for Y-haplogroup calls as {hap_file}")
+
+    for haplo, total_snps in zip(df["Y-haplogroup"], df["Total_SNPs"]):
+        dict_snps.setdefault(haplo, []).append(int(total_snps))
+
+    trees_dir = pathlib.Path(f"./data/output/trees/{iid}")
+    trees_dir.mkdir(parents=True, exist_ok=True)
+
+    tree_file = trees_dir / f"tree_output_{iid}.txt"
+    with open(tree_file, "w") as f:
+        hap = result["Y-haplogroup"].iloc[0]
+        level = int(result["Level"].iloc[0])
+        f.write(
+            f"Tree created for sample {iid}, with most derived Y-haplogroup: {hap}\n"
+        )
+        create_tree(string=hap, level=level, df=df, chpar=chpar, file=f)
+        f.write("\n")
+
+    paths_file = pathlib.Path("data/output/paths.txt")
+    existing_entries = set()
+
+    if paths_file.exists():
+        with open(paths_file, "r") as f:
+            existing_entries = {line.strip() for line in f if line.strip()}
+
+    path = create_path(
+        string=result["Y-haplogroup"].iloc[0],
+        df=df,
+        chpar=chpar,
+    )
+    content = f"{iid}: {','.join(map(str, path))}"
+
+    if content not in existing_entries:
+        with open(paths_file, "a") as file:
+            file.write(content + "\n")
+
+    print(f"Y-haplogroup simplified tree saved as {tree_file}")
+
+
+def create_summary(
+    iid: str,
+    result: pd.DataFrame,
+    samples: list,
+    branches: list,
+    levels: list,
+    ratios: list,
+    scores: list,
+    ages_exist: bool,
+    ages_df: pd.DataFrame | None,
+    formed: list,
+    tmrca: list,
+):
+    """
+    Update summary lists with:
+    - most derived Y-haplogroup
+    - level
+    - ratio #ANC in par./#DER in par.
+    - score
+    and, if ages_exist, formation and TMRCA.
+    """
+
+    samples.append(iid)
+    branches.append(result["Y-haplogroup"].iloc[0])
+    levels.append(int(result["Level"].iloc[0]))
+
+    if "#ANC in par./#DER in par." in result.columns and "Score" in result.columns:
+        ratios.append(float(result["#ANC in par./#DER in par."].iloc[0]))
+        scores.append(int(result["Score"].iloc[0]))
+    else:
+        ratios.append(0.0)
+        scores.append(0)
+
+    if ages_exist and ages_df is not None:
+        hap = result["Y-haplogroup"].iloc[0]
+        ages_indexed = ages_df.set_index("Y-haplogroup")
+        formed.append(ages_indexed["Formed"].get(hap))
+        tmrca.append(ages_indexed["TMRCA"].get(hap))
+
+    return samples, branches, levels, ratios, scores, formed, tmrca
+
+
+def final_summary(samples, branches, levels, ratios, scores):
+    """Create a final summary DataFrame and append it to scores.csv."""
+
+    summary_df = pd.DataFrame(
+        {
+            "Sample": samples,
+            "Most derived": branches,
+            "Level": levels,
+            "Ratio": ratios,
+            "Score": scores,
+        }
+    )
+
+    out_file = pathlib.Path("data/output/scores.csv")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    summary_df.to_csv(out_file, mode="a", header=False, index=False)
+    print(
+        f"Saved Y-haplogroup calls for {len(samples)} individuals as {out_file}"
+    )
+
+
+def final_ages(ages_exist, samples, branches, formed, tmrca):
+    """Create a final summary DataFrame for ages and append it to hap_ages.csv."""
+
+    if not ages_exist:
+        return
+
+    ages_df = pd.DataFrame(
+        {
+            "Sample": samples,
+            "Most derived": branches,
+            "Formed": formed,
+            "TMRCA": tmrca,
+        }
+    )
+
+    out_file = pathlib.Path("data/output/hap_ages.csv")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    ages_df.to_csv(out_file, mode="a", header=False, index=False)
+    print(
+        f"Saved Y-haplogroup ages for {len(samples)} individuals as {out_file}"
+    )
+
+
+def snps_branch(dict_snps: dict):
+    """Write a CSV file with SNPs per branch."""
+
+    data_list = []
+    for haplo, snps in dict_snps.items():
+        for snp in snps:
+            data_list.append({"Haplogroup": haplo, "Total_SNPs": snp})
+
+    df_snps = pd.DataFrame(data_list)
+
+    out_file = pathlib.Path("data/output/snps_branch.csv")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    df_snps.to_csv(out_file, mode="a", header=False, index=False)
+
+
+def y_call(
+    bam_list,
+    initial,
+    final,
+    base_qual,
+    map_qual,
+    database,
+    reference_genome,
+    create_phylogeny,
+    width,
+    height,
+    transitions,
+    translation,
+    ex_limit,
+    ages,
+):
+    """Main function to run the y_call software."""
+
+    out_path = pathlib.Path("data/output")
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    temp_path = pathlib.Path("./data/output/temp")
+    temp_path.mkdir(parents=True, exist_ok=True)
+
+    path_snps = f"./data/input/{database}/snps.csv"
+    tree = f"./data/input/{database}/tree.csv"
+    mm = f"./data/input/{database}/mm.tsv"
+    path_branches = f"./data/input/{database}/haps.csv"
+
+    chpar = create_parent_dct(path_parents=tree)
+
+    OY = load_input_data(
+        database=database,
+        path_snps=path_snps,
+        reference_genome=reference_genome,
+        chpar=chpar,
+        path_branches=path_branches,
+        translation=translation,
+    )
+
+    routes = load_individuals(bam_list, initial, final)
+    print(f"Loaded a total of {len(routes)} male individuals.")
+
+    samples: list[str] = []
+    branches: list[str] = []
+    levels: list[int] = []
+    ratios: list[float] = []
+    scores: list[int] = []
+
+    ages_exist = False
+    ages_df = None
+    formed: list = []
+    tmrca: list = []
+
+    if pathlib.Path(ages).exists():
+        ages_exist = True
+        ages_df = pd.read_csv(ages)
+
+    dict_snps: dict = {}
+
+    for iid, bam in routes:
+        if not pathlib.Path(bam).exists():
+            print(f"Sample {iid} not considered, missing BAM file.")
+            continue
+
+        print(
+            f"\n## Summary coverage statistics for sample {iid} ##\n--------------------"
+        )
+
+        df_ch, df_der = call_y_bam(
+            df=OY,
+            path_bam=bam,
+            path_bed=f"./data/output/{database}_snps.bed",
+            path_temp=f"./data/output/temp/{iid}_temp.tsv",
+            snip5=0,
+            snip3=0,
+            base_qual=base_qual,
+            map_qual=map_qual,
+        )
+
+        df_cts = pd.read_csv(mm, sep="\t")
+        df_ex3 = df_cts[df_cts["count"] > ex_limit]
+
+        if transitions == "Y":
+            idx_trans = df_ch[
+                (
+                    (
+                        (df_ch["ref"] == "C") & (df_ch["alt"] == "T")
+                    )
+                    | (
+                        (df_ch["ref"] == "G") & (df_ch["alt"] == "A")
+                    )
+                )
+                & (df_ch["alt#"] > df_ch["ref#"])
+                | (
+                    (
+                        (df_ch["ref"] == "T") & (df_ch["alt"] == "C")
+                    )
+                    | (
+                        (df_ch["ref"] == "A") & (df_ch["alt"] == "G")
+                    )
+                )
+                & (df_ch["alt#"] < df_ch["ref#"])
+            ].index
+            df_ch = df_ch.drop(index=idx_trans)
+
+        dft = haplogroup_info(df_ch, chpar, df_ex3)
+
+        df = dft[dft["Y-haplogroup"] != "I-P38"].sort_values(by="Score")
+
+        most_der = df["Score"].iloc[-1]
+        result = df[df["Score"] == most_der]
+
+        if len(result) > 1:
+            result = decide_haplogroup(result, df, chpar, OY)
+
+        create_directories(iid, df_ch, df_der, df, dict_snps, chpar, result)
+
+        print(
+            "\n## Update global output files ##\n--------------------\n"
+            "Path to most derived haplogroup included in data/output/paths.txt"
+        )
+
+        (
+            samples,
+            branches,
+            levels,
+            ratios,
+            scores,
+            formed,
+            tmrca,
+        ) = create_summary(
+            iid=iid,
+            result=result,
+            samples=samples,
+            branches=branches,
+            levels=levels,
+            ratios=ratios,
+            scores=scores,
+            ages_exist=ages_exist,
+            ages_df=ages_df,
+            formed=formed,
+            tmrca=tmrca,
+        )
+
+    final_summary(samples, branches, levels, ratios, scores)
+    final_ages(ages_exist, samples, branches, formed, tmrca)
+    snps_branch(dict_snps)
+
+    print(
+        "\n## Run analysis to know the total number of unique lineages in dataset ##\n"
+        "--------------------"
+    )
+
+    paths_file = pathlib.Path("data/output/paths.txt")
+    if paths_file.exists():
+        with open(paths_file, "r") as file:
+            items = [line.strip() for line in file if line.strip()]
+    else:
+        items = []
+
+    scores_file = pathlib.Path("data/output/scores.csv")
+    if scores_file.exists():
+        summary = pd.read_csv(
+            scores_file,
+            header=None,
+            names=[
+                "Sample-ID",
+                "Y-haplogroup",
+                "Level",
+                "#ANC in par./#DER in par.",
+                "Score",
+            ],
+        )
+        unique = unique_lineages(summary, items)
+        print(f"Total number of unique lineages in dataset: {len(unique)}.")
+    else:
+        print("No scores.csv found; cannot compute unique lineages.")
+        unique = []
+
+    if create_phylogeny == "Y" and items:
+        print(
+            "\n## Create phylogenetic tree to know relationship between samples ##\n"
+            "--------------------"
+        )
+
+        paths = "data/output/paths.txt"
+        avg_snps = "data/output/snps_branch.csv"
+        nwk_out = "data/output/simple_tree.nwk"
+
+        file_fig = pathlib.Path("./figures")
+        file_fig.mkdir(parents=True, exist_ok=True)
+
+        nwk_tree(paths, width, height, avg_snps, nwk_out, items)
+
+        print(f"Tree created for a total of {len(items)} samples")

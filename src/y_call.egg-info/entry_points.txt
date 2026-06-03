@@ -1,0 +1,4 @@
+[console_scripts]
+y_call = y_call.make_call:main
+y_call_download_data = y_call.download:main
+y_call_filter_mm = y_call.create_mm:main

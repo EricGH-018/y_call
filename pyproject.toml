@@ -22,8 +22,13 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/EricGH-018/call_y/tree/master"
 
+[tool.setuptools.package-data]
+"y_call" = ["bin/BamTable"]
+
 [project.scripts]
-y_call = "y_call.cli:main"
+y_call = "y_call.make_call:main"
+y_call_download_data = "y_call.download:main"
+y_call_filter_mm = "y_call.create_mm:main"
 
 
 [build-system]
