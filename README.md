@@ -78,7 +78,16 @@ the corresponding file with:
 y_call_filter_mm --database YFull
 y_call_filter_mm --database OY
 ```
-The existing mm.tsv considers this filtering from a subset of 247 samples. 
+The existing mm.tsv considers this filtering from a subset of 247 samples.
+
+## Unifying all Y-haplogroup calls in summary files
+
+After Y-haplogroup calling at the sample level, `y_call` enables the user to create
+file integrating information for the whole dataset analysed. This can be done with:
+```bash
+y_call_unify --database YFull --create_phylogeny Y
+y_call_unify --database OY --create_phylogeny Y
+``` 
 
 ## Command‑line usage (with default parameters)
 
@@ -90,14 +99,16 @@ y-call \
   --base_qual 20 \
   --map_qual 25 \
   --rg "hg38" \
-  --create_phylogeny "N"
   --width 60 \
   --height 80 \
   --transitions "N" \
+  --k 3 \
   --database "YFull" \
   --translation "./data/input/YF-translations.csv"
   --ex_limit 5 \
-  --ages "./data/input/ages.csv"
+  --ages "./data/input/ages.csv" \
+  --snip3 0 \
+  --snip5 0
 ```
 
 ## Python API (with default parameters)
@@ -111,15 +122,17 @@ y_call(
     final=0,
     base_qual=20,
     map_qual=25,
+    k=3,
     database="YFull",
     reference_genome="hg38",
-    create_phylogeny="N",
     width=60,
     height=80,
     transitions="N",
     translation="./data/input/YF-translations.csv",
     ex_limit=5,
-    ages="./data/input/ages.csv"
+    ages="./data/input/ages.csv",
+    snip3=0,
+    snip5=0
 )
 ```
 

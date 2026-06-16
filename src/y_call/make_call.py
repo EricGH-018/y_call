@@ -45,24 +45,23 @@ def main():
         help = "Minimum mapping quality.")
     parser.add_argument("--rg", required=False, type=str, default="hg38",
         help = "Specify the reference genome for genome coordinates (either hg38 or hg19).")
-    parser.add_argument("--create_phylogeny", required=False, type=str, default="N",
-        help = "Create a network connecting the different Y-haplogroups and placing samples in it, specify Y if wanted.")
-    parser.add_argument("--width", required=False, type=int, default=60,
-        help = "Width of the network created.")
-    parser.add_argument("--height", required=False, type=int, default=80,
-        help = "Height of the network created.")
     parser.add_argument("--transitions", required=False, type=str, default="N",
         help = "Filter for transitions in the analysis (C -> T and G -> A), specify Y if wanted.")
     parser.add_argument("--database", required=False, type=str, default="YFull",
         help = "Specify the dataset to be used in the analysis, between OY, YFull or other (the program looks for ./data/input/[database]/).")
+    parser.add_argument("--k", required=False, type=int, default=3,
+        help = "Negative punctuation assigned to ancestral alleles.")
     parser.add_argument("--translation", required=False, type=str, default="./data/input/YF-translations.csv",
         help = "Provide a .csv file indicating the equivalent nomenclature for every haplogroup in a different database.")
     parser.add_argument("--ex_limit", required=False, type=int, default=5,
         help = "Specify the minimum number of samples to consider excluding a SNP (because of high ancestral state count).")
     parser.add_argument("--ages", required=False, type=str, default="./data/input/ages.csv",
         help = "Provide a .csv file with Formed and TMRCA age information for every haplogroup in the tree.")
-
-
+    parser.add_argument("--snip5", required=False, type=int, default=0,
+        help = "Number of bases to avoid from the 5' end of reads.")
+    parser.add_argument("--snip3", required=False, type=int, default=0,
+        help = "Number of bases to avoid from the 3' end of reads.")
+    
     # Store arguments as variables:
     args = parser.parse_args()
 
@@ -70,10 +69,10 @@ def main():
 
     # Run function for the software: y_call.
     y_call(bam_list=args.bam_list, initial=args.index_i, final=args.index_f,
-           base_qual=args.base_qual, map_qual=args.map_qual, database=args.database,
-           reference_genome=args.rg, create_phylogeny=args.create_phylogeny, 
-           width=args.width, height=args.height, transitions=args.transitions,
-           translation=args.translation, ex_limit=args.ex_limit, ages=args.ages)
+           base_qual=args.base_qual, map_qual=args.map_qual, k=args.k, database=args.database,
+           reference_genome=args.rg, transitions=args.transitions, 
+           translation=args.translation, ex_limit=args.ex_limit, 
+           ages=args.ages, snip5=args.snip5, snip3=args.snip3)
 
 if __name__ == "__main__":
 
